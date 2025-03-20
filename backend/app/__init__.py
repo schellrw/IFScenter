@@ -90,6 +90,11 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         "supports_credentials": True
     }})
     
+    @app.route('/health')
+    def health_check():
+        """Simple health check endpoint."""
+        return {"status": "ok", "message": "App is running"}, 200
+
     # Add global OPTIONS handler for preflight requests
     @app.route('/api/<path:path>', methods=['OPTIONS'])
     def handle_options(path):
