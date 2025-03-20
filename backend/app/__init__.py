@@ -10,7 +10,7 @@ from logging.config import dictConfig
 from dotenv import load_dotenv
 load_dotenv()
 
-from flask import Flask, request
+from flask import Flask, request, send_from_directory
 from flask_cors import CORS
 from flask_jwt_extended import JWTManager
 
@@ -57,7 +57,7 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         Configured Flask application instance.
     """
     # Create and configure the app
-    app = Flask(__name__, instance_relative_config=True)
+    app = Flask(__name__, instance_relative_config=True, static_folder='static', static_url_path='/')
     
     # Load config
     if test_config is None:
@@ -184,5 +184,21 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     @app.shell_context_processor
     def ctx():
         return {'app': app, 'db': db}
+    
+    # Serve React frontend if static files are available
+    @app.route('/', defaults={'path': ''})
+    @app.route('/<path:path>')
+    def serve_react(path):
+        """Serve the React frontend."""
+        # Skip API routes - they're handled by other route handlers
+        if path.startswith('api/'):
+            return {'error': 'Not found'}, 404
+            
+        # Check if the path exists as a static file
+        if path and os.path.exists(os.path.join(app.static_folder, path)):
+            return send_from_directory(app.static_folder, path)
+            
+        # Otherwise, return index.html for client-side routing
+        return send_from_directory(app.static_folder, 'index.html')
     
     return app 
