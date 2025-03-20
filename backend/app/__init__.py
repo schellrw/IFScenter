@@ -2,50 +2,32 @@
 Application factory module.
 """
 import os
-from typing import Optional, Dict, Any
 import logging
-from logging.config import dictConfig
+from typing import Optional, Dict, Any, Union, List
 
 # Add dotenv loading at the top level
-from dotenv import load_dotenv
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
-from flask import Flask, request, send_from_directory
-from flask_cors import CORS
+from flask import Flask, request, jsonify, g
+from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager
+from werkzeug.middleware.proxy_fix import ProxyFix
 
-from .models import db, migrate
+from .models import db
+from .utils.logger import configure_logging
 from .config.config import get_config
 from .utils.db_adapter import init_db_adapter
 
-# Set up logging
-def configure_logging(app: Flask) -> None:
-    """Configure application logging.
-    
-    Args:
-        app: Flask application instance.
-    """
-    log_level = app.config.get('LOG_LEVEL', 'INFO')
-    
-    dictConfig({
-        'version': 1,
-        'formatters': {
-            'default': {
-                'format': '[%(asctime)s] %(levelname)s in %(module)s: %(message)s',
-            }
-        },
-        'handlers': {
-            'console': {
-                'class': 'logging.StreamHandler',
-                'stream': 'ext://sys.stdout',
-                'formatter': 'default'
-            },
-        },
-        'root': {
-            'level': log_level,
-            'handlers': ['console']
-        }
-    })
+# Apply Flask-CORS patch for Python 3.12 compatibility
+from .utils.flask_cors_patch import apply_patch
+apply_patch()
+
+# Import CORS after applying the patch
+from flask_cors import CORS
 
 def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     """Application factory for creating a Flask app instance.
@@ -70,6 +52,7 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     
     # Initialize extensions
     db.init_app(app)
+    migrate = Migrate()
     migrate.init_app(app, db)
     jwt = JWTManager(app)
     
@@ -185,25 +168,16 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     app.register_blueprint(systems_bp, url_prefix='/api')
     app.register_blueprint(conversations_bp, url_prefix='/api')
     
+    # Direct handler for login route
+    @app.route('/api/login', methods=['POST', 'OPTIONS'])
+    def handle_login():
+        """Forward the login request to the auth blueprint's login endpoint."""
+        from .api.auth import login
+        return login() if request.method == 'POST' else handle_options('login')
+    
     # Shell context for Flask CLI
     @app.shell_context_processor
     def ctx():
         return {'app': app, 'db': db}
-    
-    # Serve React frontend if static files are available
-    @app.route('/', defaults={'path': ''})
-    @app.route('/<path:path>')
-    def serve_react(path):
-        """Serve the React frontend."""
-        # Skip API routes - they're handled by other route handlers
-        if path.startswith('api/'):
-            return {'error': 'Not found'}, 404
-            
-        # Check if the path exists as a static file
-        if path and os.path.exists(os.path.join(app.static_folder, path)):
-            return send_from_directory(app.static_folder, path)
-            
-        # Otherwise, return index.html for client-side routing
-        return send_from_directory(app.static_folder, 'index.html')
-    
+        
     return app 
