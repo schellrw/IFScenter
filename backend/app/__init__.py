@@ -161,11 +161,11 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     from .api.systems import systems_bp
     from .api.conversations import conversations_bp
     
-    app.register_blueprint(auth_bp, url_prefix='/api')
+    app.register_blueprint(auth_bp, url_prefix='')
     app.register_blueprint(parts_bp, url_prefix='/api')
     app.register_blueprint(journals_bp, url_prefix='/api')
     app.register_blueprint(relationships_bp, url_prefix='/api')
-    app.register_blueprint(systems_bp, url_prefix='/api')
+    app.register_blueprint(systems_bp, url_prefix='')
     app.register_blueprint(conversations_bp, url_prefix='/api')
     
     # Root route handler
@@ -189,11 +189,19 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
             })
     
     # Direct handler for login route
-    @app.route('/api/login', methods=['POST', 'OPTIONS'])
+    @app.route('/login', methods=['POST', 'OPTIONS'])
     def handle_login():
         """Forward the login request to the auth blueprint's login endpoint."""
         from .api.auth import login
         return login() if request.method == 'POST' else handle_options('login')
+    
+    # Handle double-prefixed login route that frontend might be using
+    @app.route('/api/api/login', methods=['POST', 'OPTIONS'])
+    def handle_double_prefixed_login():
+        """Handle login requests with a double api prefix from frontend."""
+        from .api.auth import login
+        app.logger.info("Received login request on /api/api/login")
+        return login() if request.method == 'POST' else handle_options('api/login')
     
     # Shell context for Flask CLI
     @app.shell_context_processor
