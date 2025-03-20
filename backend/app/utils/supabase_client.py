@@ -6,8 +6,30 @@ import os
 from typing import Optional, Dict, Any
 import logging
 from supabase import create_client, Client
+from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
+
+# First, monkey patch the SyncClient class in gotrue to not use the proxy parameter
+try:
+    from httpx import Client as HttpxClient
+    from gotrue._sync.gotrue_base_api import SyncClient
+    
+    # Store the original init
+    original_init = SyncClient.__init__
+    
+    # Define a new init that filters out the proxy parameter
+    def new_init(self, *args, **kwargs):
+        # Remove proxy if it exists
+        if 'proxy' in kwargs:
+            del kwargs['proxy']
+        return original_init(self, *args, **kwargs)
+    
+    # Replace the original init with our new one
+    SyncClient.__init__ = new_init
+    
+except ImportError:
+    logging.warning("Could not patch gotrue SyncClient, Supabase might not work")
 
 class SupabaseManager:
     """Singleton class for managing Supabase client instances."""
@@ -28,39 +50,19 @@ class SupabaseManager:
     
     def _initialize_client(self):
         """Initialize the Supabase client."""
-        supabase_url = os.environ.get('SUPABASE_URL')
-        supabase_key = os.environ.get('SUPABASE_KEY')
+        try:
+            supabase_url = os.getenv('SUPABASE_URL')
+            supabase_key = os.getenv('SUPABASE_KEY')
+            
+            if not supabase_url or not supabase_key:
+                logging.warning("Supabase URL or key not set. Supabase functionality will be limited.")
+                return
 
-        # Check if we're in production or development
-        is_production = os.getenv('FLASK_ENV') == 'production'
-        
-        try:
-            # In production, don't use proxy parameter
-            if is_production:
-                self._client = create_client(supabase_url, supabase_key)
-            else:
-                # Only use proxy in development if needed
-                self._client = create_client(supabase_url, supabase_key, 
-                                            options={"httpOptions": {"proxy": None}})
-        except TypeError as e:
-            # Fallback if proxy param causes issues
-            if "proxy" in str(e):
-                self._client = create_client(supabase_url, supabase_key)
-            else:
-                # Re-raise other TypeErrors
-                raise
-        
-        if not supabase_url or not supabase_key:
-            logger.warning("Supabase configuration not found in environment variables.")
-            return
-        
-        try:
-            logger.info(f"Initializing Supabase client with URL: {supabase_url}")
             self._client = create_client(supabase_url, supabase_key)
-            logger.info("Supabase client initialized successfully")
+            logging.info("Supabase client initialized successfully")
         except Exception as e:
-            logger.error(f"Failed to initialize Supabase client: {e}")
-            raise
+            logging.error(f"Failed to initialize Supabase client: {str(e)}")
+            self._client = None
     
     @property
     def client(self) -> Optional[Client]:
@@ -115,5 +117,15 @@ class SupabaseManager:
             "Consider using the table() method for queries."
         )
 
-# Create a singleton instance
-supabase = SupabaseManager() 
+# Initialize the singleton instance
+try:
+    supabase = SupabaseManager()
+except Exception as e:
+    logging.error(f"Could not initialize Supabase: {str(e)}")
+    # Create a fallback/dummy implementation if needed
+    class DummySupabase:
+        def __getattr__(self, name):
+            def dummy_method(*args, **kwargs):
+                logging.warning(f"Supabase method {name} called but Supabase is not available")
+                return None
+            return dummy_method 
