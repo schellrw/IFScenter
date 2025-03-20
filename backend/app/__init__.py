@@ -168,6 +168,26 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     app.register_blueprint(systems_bp, url_prefix='/api')
     app.register_blueprint(conversations_bp, url_prefix='/api')
     
+    # Root route handler
+    @app.route('/', methods=['GET'])
+    def index():
+        """Serve the root path - either redirect to health check or serve index.html."""
+        # Check if we have a static/index.html file
+        if app.static_folder and os.path.exists(os.path.join(app.static_folder, 'index.html')):
+            return app.send_static_file('index.html')
+        else:
+            # No static file found, redirect to health endpoint
+            return jsonify({
+                "message": "IFS Center API - Backend Service",
+                "status": "running",
+                "api_endpoints": {
+                    "health_check": "/health",
+                    "api_base": "/api",
+                    "api_health": "/api/health",
+                    "api_test": "/api/test"
+                }
+            })
+    
     # Direct handler for login route
     @app.route('/api/login', methods=['POST', 'OPTIONS'])
     def handle_login():
