@@ -30,6 +30,25 @@ class SupabaseManager:
         """Initialize the Supabase client."""
         supabase_url = os.environ.get('SUPABASE_URL')
         supabase_key = os.environ.get('SUPABASE_KEY')
+
+        # Check if we're in production or development
+        is_production = os.getenv('FLASK_ENV') == 'production'
+        
+        try:
+            # In production, don't use proxy parameter
+            if is_production:
+                self._client = create_client(supabase_url, supabase_key)
+            else:
+                # Only use proxy in development if needed
+                self._client = create_client(supabase_url, supabase_key, 
+                                            options={"httpOptions": {"proxy": None}})
+        except TypeError as e:
+            # Fallback if proxy param causes issues
+            if "proxy" in str(e):
+                self._client = create_client(supabase_url, supabase_key)
+            else:
+                # Re-raise other TypeErrors
+                raise
         
         if not supabase_url or not supabase_key:
             logger.warning("Supabase configuration not found in environment variables.")
