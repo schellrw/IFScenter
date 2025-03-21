@@ -173,7 +173,7 @@ export const AuthProvider = ({ children }) => {
       if (token) {
         try {
           console.log('Checking stored token validity...');
-          const response = await axios.get(`${API_BASE_URL}/system`);
+          const response = await axios.get(`${API_BASE_URL}/api/system`);
           console.log('Token is valid, user authenticated');
           setCurrentUser({
             id: response.data.user_id,
@@ -206,7 +206,7 @@ export const AuthProvider = ({ children }) => {
     setDetailedError(null);
     try {
       console.log('Attempting registration with:', { username, email });
-      const response = await axios.post(`${API_BASE_URL}/register`, {
+      const response = await axios.post(`${API_BASE_URL}/api/register`, {
         username,
         email,
         password
@@ -236,8 +236,8 @@ export const AuthProvider = ({ children }) => {
     setError('');
     setDetailedError(null);
     try {
-      console.log(`Attempting login for user: ${username} to ${API_BASE_URL}/login`);
-      const response = await axios.post(`${API_BASE_URL}/login`, {
+      console.log(`Attempting login for user: ${username} to ${API_BASE_URL}/api/login`);
+      const response = await axios.post(`${API_BASE_URL}/api/login`, {
         username,
         password
       });
@@ -289,7 +289,7 @@ export const AuthProvider = ({ children }) => {
       
       /*
       // Call token refresh API
-      const response = await axios.post(`${API_BASE_URL}/refresh-token`, {}, {
+      const response = await axios.post(`${API_BASE_URL}/api/refresh-token`, {}, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
