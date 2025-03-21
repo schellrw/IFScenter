@@ -66,7 +66,7 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         app.logger.error(f"Error initializing database adapter: {e}")
     
     # Configure CORS
-    CORS(app, resources={r"/api/*": {
+    CORS(app, resources={r"/*": {
         "origins": app.config.get('CORS_ORIGINS', '*'),
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
@@ -79,10 +79,10 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         return {"status": "ok", "message": "App is running"}, 200
 
     # Add global OPTIONS handler for preflight requests
-    @app.route('/api/<path:path>', methods=['OPTIONS'])
+    @app.route('/<path:path>', methods=['OPTIONS'])
     def handle_options(path):
         """Global OPTIONS handler to ensure CORS preflight requests work for all routes."""
-        app.logger.info(f"Global OPTIONS handler called for path: /api/{path}")
+        app.logger.info(f"Global OPTIONS handler called for path: /{path}")
         response = app.make_response(('', 204))
         response.headers.extend({
             'Access-Control-Allow-Origin': app.config.get('CORS_ORIGINS', '*') if isinstance(app.config.get('CORS_ORIGINS'), str) else '*',
@@ -161,11 +161,11 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     from .api.systems import systems_bp
     from .api.conversations import conversations_bp
     
-    app.register_blueprint(auth_bp, url_prefix='')
+    app.register_blueprint(auth_bp, url_prefix='/api')
     app.register_blueprint(parts_bp, url_prefix='/api')
     app.register_blueprint(journals_bp, url_prefix='/api')
     app.register_blueprint(relationships_bp, url_prefix='/api')
-    app.register_blueprint(systems_bp, url_prefix='')
+    app.register_blueprint(systems_bp, url_prefix='/api')
     app.register_blueprint(conversations_bp, url_prefix='/api')
     
     # Root route handler
@@ -187,21 +187,6 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
                     "api_test": "/api/test"
                 }
             })
-    
-    # Direct handler for login route
-    @app.route('/login', methods=['POST', 'OPTIONS'])
-    def handle_login():
-        """Forward the login request to the auth blueprint's login endpoint."""
-        from .api.auth import login
-        return login() if request.method == 'POST' else handle_options('login')
-    
-    # Handle double-prefixed login route that frontend might be using
-    @app.route('/api/api/login', methods=['POST', 'OPTIONS'])
-    def handle_double_prefixed_login():
-        """Handle login requests with a double api prefix from frontend."""
-        from .api.auth import login
-        app.logger.info("Received login request on /api/api/login")
-        return login() if request.method == 'POST' else handle_options('api/login')
     
     # Shell context for Flask CLI
     @app.shell_context_processor
