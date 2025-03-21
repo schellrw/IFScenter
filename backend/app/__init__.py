@@ -162,11 +162,11 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     from .api.conversations import conversations_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api')
+    app.register_blueprint(conversations_bp, url_prefix='/api')
     app.register_blueprint(parts_bp, url_prefix='/api')
     app.register_blueprint(journals_bp, url_prefix='/api')
     app.register_blueprint(relationships_bp, url_prefix='/api')
     app.register_blueprint(systems_bp, url_prefix='/api')
-    app.register_blueprint(conversations_bp, url_prefix='/api')
     
     # Root route handler
     @app.route('/', methods=['GET'])
