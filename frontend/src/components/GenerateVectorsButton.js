@@ -9,7 +9,11 @@ import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
 import axios from 'axios';
 import { useIFS } from '../context/IFSContext';
 
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+let API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+// Remove any quotation marks that might have been included in the environment variable
+API_BASE_URL = API_BASE_URL.replace(/["']/g, '');
+// Ensure API_BASE_URL doesn't end with a slash
+API_BASE_URL = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
 
 /**
  * Button component for generating personality vectors for a part.
