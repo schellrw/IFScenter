@@ -219,6 +219,8 @@ def delete_part(part_id):
 def get_part_conversations(part_id):
     """Get conversations for a specific part.
     
+    This route delegates to the conversations module implementation.
+    
     Args:
         part_id: Part ID
         
@@ -238,25 +240,20 @@ def get_part_conversations(part_id):
         return response
 
     try:
-        # Verify the part exists
-        part = current_app.db_adapter.get_by_id(TABLE_NAME, Part, part_id)
-        if not part:
-            return jsonify({"error": "Part not found"}), 404
-            
-        # Get conversations for this part
-        from ..models import PartConversation
-        filter_dict = {'part_id': part_id}
-        conversations = current_app.db_adapter.get_all('part_conversations', PartConversation, filter_dict)
-        
-        return jsonify({"conversations": conversations})
+        # Import the function from conversations blueprint
+        from .conversations import get_conversations_by_part
+        # Call the implementation from conversations blueprint
+        return get_conversations_by_part(part_id)
     except Exception as e:
-        logger.error(f"Error fetching part conversations: {str(e)}")
+        logger.error(f"Error delegating to conversations blueprint: {str(e)}")
         return jsonify({"error": "An error occurred while fetching part conversations"}), 500
 
 @parts_bp.route('/parts/<part_id>/conversations', methods=['POST', 'OPTIONS'])
 @auth_required
 def create_part_conversation(part_id):
     """Create a new conversation for a specific part.
+    
+    This route delegates to the conversations module implementation.
     
     Args:
         part_id: Part ID
@@ -277,64 +274,10 @@ def create_part_conversation(part_id):
         return response
         
     try:
-        # Verify the part exists
-        part = current_app.db_adapter.get_by_id(TABLE_NAME, Part, part_id)
-        if not part:
-            return jsonify({"error": "Part not found"}), 404
-            
-        data = request.json
-        title = data.get('title', f"Conversation with {part.get('name', 'Part')}")
-        timestamp = data.get('timestamp')  # Optional timestamp to detect duplicates
-        
-        # Check for potential duplicate conversations (created in the last 5 seconds)
-        if timestamp:
-            from ..models import PartConversation
-            import datetime
-            from datetime import timezone
-            
-            # Get recent conversations
-            filter_dict = {'part_id': part_id}
-            recent_conversations = current_app.db_adapter.get_all('part_conversations', PartConversation, filter_dict)
-            
-            # Parse the provided timestamp
-            try:
-                request_time = datetime.datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            except (ValueError, AttributeError):
-                # If timestamp is invalid, just continue with creation
-                request_time = datetime.datetime.now(timezone.utc)
-                
-            # Check if any conversations were created very recently (within 5 seconds)
-            for conv in recent_conversations:
-                try:
-                    # Parse the created_at timestamp
-                    created_time_str = conv.get('created_at')
-                    if created_time_str:
-                        created_time = datetime.datetime.fromisoformat(created_time_str.replace('Z', '+00:00'))
-                        time_diff = abs((request_time - created_time).total_seconds())
-                        
-                        # If a very recent conversation exists, return it instead of creating a new one
-                        if time_diff < 5:
-                            logger.info(f"Found duplicate conversation request, returning existing conversation {conv.get('id')}")
-                            return jsonify({"conversation": conv, "duplicate": True}), 200
-                except (ValueError, AttributeError) as e:
-                    # If parsing fails, just continue checking other conversations
-                    logger.warning(f"Error parsing timestamp: {e}")
-                    continue
-        
-        # Create conversation
-        from ..models import PartConversation
-        conversation_data = {
-            'title': title,
-            'part_id': part_id,
-            'system_id': part.get('system_id')
-        }
-        
-        conversation = current_app.db_adapter.create('part_conversations', PartConversation, conversation_data)
-        
-        if not conversation:
-            return jsonify({"error": "Failed to create conversation"}), 500
-        
-        return jsonify({"conversation": conversation}), 201
+        # Import the function from conversations blueprint
+        from .conversations import create_conversation_for_part
+        # Call the implementation from conversations blueprint
+        return create_conversation_for_part(part_id)
     except Exception as e:
-        logger.error(f"Error creating part conversation: {str(e)}")
+        logger.error(f"Error delegating to conversations blueprint: {str(e)}")
         return jsonify({"error": "An error occurred while creating the conversation"}), 500 

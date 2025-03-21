@@ -735,7 +735,7 @@ def create_conversation_for_part(part_id):
         logger.error(f"Error creating conversation for part: {str(e)}")
         return jsonify({"error": "An error occurred while creating the conversation"}), 500
 
-@conversations_bp.route('/test', methods=['GET'])
+@conversations_bp.route('/conversations/test', methods=['GET'])
 def test_conversation_route():
     """Test endpoint to verify the conversations blueprint is working."""
     return jsonify({
