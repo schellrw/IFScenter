@@ -733,4 +733,13 @@ def create_conversation_for_part(part_id):
         return jsonify({"conversation": conversation}), 201
     except Exception as e:
         logger.error(f"Error creating conversation for part: {str(e)}")
-        return jsonify({"error": "An error occurred while creating the conversation"}), 500 
+        return jsonify({"error": "An error occurred while creating the conversation"}), 500
+
+@conversations_bp.route('/test', methods=['GET'])
+def test_conversation_route():
+    """Test endpoint to verify the conversations blueprint is working."""
+    return jsonify({
+        "status": "ok",
+        "message": "Conversations API is accessible",
+        "blueprint": "conversations_bp"
+    }) 
