@@ -188,6 +188,19 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
                 }
             })
     
+    # Add a debug route to list all registered routes
+    @app.route('/api/debug/routes', methods=['GET'])
+    def list_routes():
+        """List all registered routes for debugging."""
+        routes = []
+        for rule in app.url_map.iter_rules():
+            routes.append({
+                'endpoint': rule.endpoint,
+                'methods': list(rule.methods),
+                'rule': str(rule)
+            })
+        return jsonify(routes)
+    
     # Shell context for Flask CLI
     @app.shell_context_processor
     def ctx():
