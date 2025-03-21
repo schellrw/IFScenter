@@ -9,7 +9,14 @@ import SettingsSuggestIcon from '@mui/icons-material/SettingsSuggest';
 import axios from 'axios';
 import { useIFS } from '../context/IFSContext';
 
-let API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+let API_BASE_URL;
+if (process.env.REACT_APP_API_URL === undefined || process.env.REACT_APP_API_URL === null) {
+  // If not defined, use a default based on environment
+  API_BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000';
+} else {
+  // Otherwise use the provided value
+  API_BASE_URL = process.env.REACT_APP_API_URL;
+}
 // Remove any quotation marks that might have been included in the environment variable
 API_BASE_URL = API_BASE_URL.replace(/["']/g, '');
 // Ensure API_BASE_URL doesn't end with a slash
