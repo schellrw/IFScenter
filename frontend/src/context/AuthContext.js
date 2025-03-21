@@ -2,7 +2,12 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import axios from 'axios';
 
 const AuthContext = createContext();
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+// Clean up the API_BASE_URL to handle any potential quotation marks and ensure proper URL formation
+let API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+// Remove any quotation marks that might have been included in the environment variable
+API_BASE_URL = API_BASE_URL.replace(/["']/g, '');
+// Ensure API_BASE_URL doesn't end with a slash
+API_BASE_URL = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
 
 // Session timeout configuration
 const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
