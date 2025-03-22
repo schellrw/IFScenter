@@ -645,7 +645,7 @@ def generate_conversation_summary(conversation_id):
         logger.error(f"Error generating conversation summary: {str(e)}")
         return jsonify({"error": "An error occurred while generating the summary"}), 500
 
-@conversations_bp.route('/parts/<part_id>/conversations', methods=['GET'])
+@conversations_bp.route('/parts/<part_id>/conversations', methods=['GET', 'OPTIONS'])
 @auth_required
 def get_conversations_by_part(part_id):
     """Get all conversations for a specific part.
@@ -656,20 +656,44 @@ def get_conversations_by_part(part_id):
     Returns:
         JSON response with conversations data.
     """
+    logger.info(f"Received request for conversations of part: {part_id}")
+    
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        logger.info(f"Handling OPTIONS request for /parts/{part_id}/conversations")
+        # Set CORS headers for OPTIONS response
+        response = current_app.make_response(('', 204))
+        response.headers.extend({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        })
+        return response
+        
     try:
+        # Log authentication info
+        logger.info(f"Auth info: {g.user if hasattr(g, 'user') else 'No user in context'}")
+        
         # Validate part exists
+        logger.info(f"Fetching part with ID: {part_id}")
         part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
         if not part:
+            logger.error(f"Part not found: {part_id}")
             return jsonify({"error": "Part not found"}), 404
+        
+        logger.info(f"Found part: {part.get('name', 'unknown')}")
             
         # Get system_id from part
         system_id = part.get('system_id')
+        logger.info(f"System ID from part: {system_id}")
         
         # Build filter dictionary
         filter_dict = {'part_id': part_id}
         
         # Use the database adapter
+        logger.info(f"Fetching conversations with filter: {filter_dict}")
         conversations = current_app.db_adapter.get_all(CONVERSATION_TABLE, PartConversation, filter_dict)
+        logger.info(f"Found {len(conversations)} conversations")
         
         # Enrich conversations with message counts to help frontend make better decisions
         for conversation in conversations:
@@ -682,12 +706,14 @@ def get_conversations_by_part(part_id):
                 logger.warning(f"Could not get message count for conversation {conversation.get('id')}: {str(e)}")
                 # Don't fail if we can't get the count, just continue
         
-        return jsonify({"conversations": conversations})
+        result = {"conversations": conversations}
+        logger.info(f"Returning {len(conversations)} conversations")
+        return jsonify(result)
     except Exception as e:
         logger.error(f"Error fetching conversations for part: {str(e)}")
         return jsonify({"error": "An error occurred while fetching conversations"}), 500
 
-@conversations_bp.route('/parts/<part_id>/conversations', methods=['POST'])
+@conversations_bp.route('/parts/<part_id>/conversations', methods=['POST', 'OPTIONS'])
 @auth_required
 def create_conversation_for_part(part_id):
     """Create a new conversation for a specific part.
@@ -698,6 +724,18 @@ def create_conversation_for_part(part_id):
     Returns:
         JSON response with created conversation data.
     """
+    # Handle OPTIONS request for CORS preflight
+    if request.method == 'OPTIONS':
+        logger.info(f"Handling OPTIONS request for POST /parts/{part_id}/conversations")
+        # Set CORS headers for OPTIONS response
+        response = current_app.make_response(('', 204))
+        response.headers.extend({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
+        })
+        return response
+        
     try:
         data = request.json
         
