@@ -19,6 +19,7 @@ const Register = () => {
     confirmPassword: ''
   });
   const [formErrors, setFormErrors] = useState({});
+  const [confirmationRequired, setConfirmationRequired] = useState(false);
   const { register, error } = useAuth();
   const navigate = useNavigate();
 
@@ -71,12 +72,57 @@ const Register = () => {
     if (!validateForm()) return;
     
     try {
-      await register(formData.username, formData.email, formData.password);
-      navigate('/');
+      const result = await register(formData.username, formData.email, formData.password);
+      
+      if (result && result.requires_confirmation) {
+        // Handle email confirmation required case
+        setConfirmationRequired(true);
+      } else {
+        // Normal flow - redirect to dashboard
+        navigate('/');
+      }
     } catch (error) {
       console.error('Registration failed:', error);
     }
   };
+
+  // If confirmation is required, show a different UI
+  if (confirmationRequired) {
+    return (
+      <Container maxWidth="sm">
+        <Box sx={{ mt: 8 }}>
+          <Paper sx={{ p: 4 }}>
+            <Typography variant="h4" component="h1" gutterBottom align="center">
+              Check Your Email
+            </Typography>
+            
+            <Alert severity="info" sx={{ mb: 3 }}>
+              Registration successful! Please check your email to confirm your account before logging in.
+            </Alert>
+            
+            <Box sx={{ textAlign: 'center', mt: 4 }}>
+              <Typography variant="body1" paragraph>
+                A confirmation link has been sent to <strong>{formData.email}</strong>
+              </Typography>
+              
+              <Typography variant="body2" paragraph>
+                Please click the link in the email to activate your account.
+              </Typography>
+              
+              <Button
+                component={Link}
+                to="/login"
+                variant="contained"
+                sx={{ mt: 2 }}
+              >
+                Go to Login
+              </Button>
+            </Box>
+          </Paper>
+        </Box>
+      </Container>
+    );
+  }
 
   return (
     <Container maxWidth="sm">

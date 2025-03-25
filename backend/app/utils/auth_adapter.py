@@ -176,6 +176,8 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
                 }
             })
             
+            logger.debug(f"Supabase signup response: {signup_data}")
+            
             if not signup_data.user:
                 raise ValueError("User registration failed")
                 
@@ -185,7 +187,18 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
                 "username": username
             }
             
-            return user_data, signup_data.session.access_token
+            # Check if session is available (might be None if email confirmation is required)
+            access_token = ""
+            if signup_data.session:
+                access_token = signup_data.session.access_token
+                logger.debug("Session and access token available after registration")
+            else:
+                logger.warning("No session available after registration - email confirmation may be required")
+                # For Supabase with email confirmation, we don't get a session immediately
+                # Return a special message to the frontend
+                user_data["confirmation_required"] = True
+            
+            return user_data, access_token
         except Exception as e:
             logger.error(f"Supabase registration error: {str(e)}")
             raise
