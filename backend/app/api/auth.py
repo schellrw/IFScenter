@@ -83,25 +83,40 @@ def register():
         
         # Create a new system for the user
         # Note: This needs to be adapted for Supabase as well
-        if not use_supabase_auth:
-            # For traditional database, this is already handled in register_user
-            pass
-        else:
-            # For Supabase, we need to create the system
-            system = IFSSystem(user_id=user_data["id"])
-            db.session.add(system)
-            db.session.flush()
-            
-            # Add default "Self" part
-            self_part = Part(
-                name="Self", 
-                system_id=str(system.id),
-                role="Self", 
-                description="The compassionate core consciousness that can observe and interact with other parts"
-            )
-            db.session.add(self_part)
-            db.session.commit()
+        try:
+            if not use_supabase_auth:
+                # For traditional database, this is already handled in register_user
+                pass
+            else:
+                # For Supabase, we need to create the system
+                system = IFSSystem(user_id=user_data["id"])
+                db.session.add(system)
+                db.session.flush()
+                
+                # Add default "Self" part
+                self_part = Part(
+                    name="Self", 
+                    system_id=str(system.id),
+                    role="Self", 
+                    description="The compassionate core consciousness that can observe and interact with other parts"
+                )
+                db.session.add(self_part)
+                db.session.commit()
+                
+                logger.info(f"Created system and default 'Self' part for user {username} with ID {user_data.get('id')}")
+        except Exception as system_error:
+            logger.error(f"Error creating system for user {username}: {str(system_error)}")
+            # Still return success since the user was created in Supabase
+            # Frontend will need to handle creating a system on first login
         
+        confirmation_required = user_data.get("confirmation_required", False)
+        if confirmation_required:
+            return jsonify({
+                "message": "Registration successful! Please check your email to confirm your account.",
+                "confirmation_required": True,
+                "user": user_data
+            }), 201
+            
         logger.info(f"User {username} registered successfully with ID: {user_data.get('id')}")
         return jsonify({
             "message": "User registered successfully",

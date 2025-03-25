@@ -66,17 +66,35 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     except Exception as e:
         app.logger.error(f"Error initializing database adapter: {e}")
     
-    # Configure CORS - simplified version with explicit Netlify domain
-    # Hardcode the Netlify domain directly to avoid property issues
-    # We'll keep the environment variable option but make sure it's handled as a string
-    cors_origins = os.environ.get('CORS_ORIGINS', 'https://ifscenter.netlify.app')
-    # Always ensure the Netlify domain is included
-    if 'https://ifscenter.netlify.app' not in cors_origins:
-        if ',' in cors_origins:
-            cors_origins += ',https://ifscenter.netlify.app'
-        else:
-            cors_origins = 'https://ifscenter.netlify.app'
+    # Configure CORS to support both production and development
+    flask_env = os.environ.get('FLASK_ENV', 'development')
+    netlify_domain = 'https://ifscenter.netlify.app'
+    local_domains = ['http://localhost:3000', 'http://127.0.0.1:3000']
     
+    # Get CORS origins from environment or use defaults based on environment
+    cors_origins = os.environ.get('CORS_ORIGINS', '')
+    if not cors_origins:
+        if flask_env == 'production':
+            cors_origins = netlify_domain
+        else:
+            cors_origins = ','.join(local_domains)
+    
+    # Always ensure the Netlify domain is included in production
+    if flask_env == 'production' and netlify_domain not in cors_origins:
+        cors_origins += f',{netlify_domain}'
+        
+    # Always ensure localhost domains are included in development
+    if flask_env == 'development':
+        for domain in local_domains:
+            if domain not in cors_origins:
+                cors_origins += f',{domain}'
+    
+    # Convert string to list if it contains commas
+    if isinstance(cors_origins, str) and ',' in cors_origins:
+        cors_origins = [origin.strip() for origin in cors_origins.split(',') if origin.strip()]
+    elif isinstance(cors_origins, str):
+        cors_origins = [cors_origins]
+        
     app.logger.info(f"Configuring CORS with origins: {cors_origins}")
     CORS(app, resources={r"/*": {
         "origins": cors_origins,
@@ -89,9 +107,23 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     def after_request(response):
         """Add CORS headers to every response."""
         origin = request.headers.get('Origin')
-        # If origin matches the Netlify domain, set the header
-        if origin == 'https://ifscenter.netlify.app':
-            response.headers.add('Access-Control-Allow-Origin', 'https://ifscenter.netlify.app')
+        
+        # Check if origin is allowed
+        allowed_origins = []
+        if flask_env == 'production':
+            allowed_origins = [netlify_domain]
+        else:
+            allowed_origins = local_domains
+            
+        # Add any additional origins from environment
+        if os.environ.get('CORS_ORIGINS'):
+            for origin_entry in os.environ.get('CORS_ORIGINS').split(','):
+                if origin_entry.strip() and origin_entry.strip() not in allowed_origins:
+                    allowed_origins.append(origin_entry.strip())
+        
+        # If origin matches allowed domains, set the header
+        if origin in allowed_origins:
+            response.headers.add('Access-Control-Allow-Origin', origin)
             response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
             response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
             response.headers.add('Access-Control-Allow-Credentials', 'true')
@@ -102,7 +134,7 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         """Simple health check endpoint."""
         return {"status": "ok", "message": "App is running"}, 200
 
-    # Add simplified global OPTIONS handler for preflight requests
+    # Add global OPTIONS handler for preflight requests
     @app.route('/<path:path>', methods=['OPTIONS'])
     def handle_options(path):
         """Global OPTIONS handler to ensure CORS preflight requests work for all routes."""
@@ -112,16 +144,29 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         # Get origin from request
         origin = request.headers.get('Origin')
         
-        # Simply check if origin is the Netlify domain
-        if origin == 'https://ifscenter.netlify.app':
+        # Determine allowed origins based on environment
+        allowed_origins = []
+        if flask_env == 'production':
+            allowed_origins = [netlify_domain]
+        else:
+            allowed_origins = local_domains
+            
+        # Add any additional origins from environment
+        if os.environ.get('CORS_ORIGINS'):
+            for origin_entry in os.environ.get('CORS_ORIGINS').split(','):
+                if origin_entry.strip() and origin_entry.strip() not in allowed_origins:
+                    allowed_origins.append(origin_entry.strip())
+        
+        # If origin matches allowed domains, set CORS headers
+        if origin in allowed_origins:
             response.headers.extend({
-                'Access-Control-Allow-Origin': 'https://ifscenter.netlify.app',
+                'Access-Control-Allow-Origin': origin,
                 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
                 'Access-Control-Allow-Credentials': 'true',
                 'Access-Control-Max-Age': '3600'  # Cache preflight for 1 hour
             })
-        
+            
         return response
     
     # Add test endpoints for connectivity testing

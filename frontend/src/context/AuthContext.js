@@ -224,6 +224,18 @@ export const AuthProvider = ({ children }) => {
         password
       });
       console.log('Registration response:', response.data);
+      
+      // Check if email confirmation is required
+      if (response.data.confirmation_required) {
+        // Don't set token or current user if confirmation is required
+        console.log('Email confirmation required for registration');
+        return {
+          ...response.data,
+          requires_confirmation: true
+        };
+      }
+      
+      // Normal flow when confirmation is not required
       setToken(response.data.access_token);
       setCurrentUser(response.data.user);
       return response.data;
