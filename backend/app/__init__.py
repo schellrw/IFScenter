@@ -204,6 +204,59 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
             "all_headers": headers
         }
     
+    @app.route('/api/auth-test', methods=['POST'])
+    def auth_test():
+        """Debug endpoint to test auth functionality."""
+        try:
+            data = request.json
+            username = data.get('username', '')
+            password = data.get('password', '')
+            
+            # Test if it's using Supabase or JWT
+            from .utils.auth_adapter import use_supabase_auth
+            auth_mode = 'Supabase' if use_supabase_auth else 'JWT'
+            
+            # Test database connection
+            from .models import User
+            user_exists = False
+            users_count = 0
+            
+            try:
+                users = db.session.execute(db.select(User).limit(5))
+                users_list = list(users.scalars())
+                users_count = len(users_list)
+                user = User.query.filter_by(username=username).first()
+                user_exists = user is not None
+            except Exception as db_error:
+                return jsonify({
+                    "status": "error",
+                    "message": "Database test failed",
+                    "error": str(db_error),
+                    "auth_mode": auth_mode
+                }), 500
+            
+            return jsonify({
+                "status": "ok",
+                "message": "Auth test completed",
+                "auth_mode": auth_mode,
+                "username_submitted": username,
+                "password_submitted": "(hidden)",
+                "user_exists": user_exists,
+                "users_count": users_count,
+                "supabase_available": hasattr(app, 'supabase_client'),
+                "database_connection": "working"
+            })
+        except Exception as e:
+            app.logger.error(f"Auth test failed: {str(e)}")
+            import traceback
+            tb = traceback.format_exc()
+            return jsonify({
+                "status": "error",
+                "message": "Auth test failed",
+                "error": str(e),
+                "traceback": tb
+            }), 500
+    
     # Register blueprints
     from .api.auth import auth_bp
     from .api.parts import parts_bp

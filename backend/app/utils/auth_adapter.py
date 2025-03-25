@@ -191,9 +191,8 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
             raise
     else:
         # Use regular database models and JWT
-        # This would call your existing registration logic
         from backend.app.models import db, User
-        from backend.app.api.auth import create_access_token
+        from flask_jwt_extended import create_access_token
         
         # Check for existing user
         existing_user = User.query.filter_by(username=username).first()
@@ -276,7 +275,7 @@ def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str]:
     else:
         # Use regular database models and JWT
         from backend.app.models import User
-        from backend.app.api.auth import create_access_token
+        from flask_jwt_extended import create_access_token
         
         # Find user
         user = User.query.filter_by(username=username).first()
