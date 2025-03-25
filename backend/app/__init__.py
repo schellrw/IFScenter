@@ -4,6 +4,7 @@ Application factory module.
 import os
 import logging
 from typing import Optional, Dict, Any, Union, List
+import datetime
 
 # Add dotenv loading at the top level
 try:
@@ -65,25 +66,20 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     except Exception as e:
         app.logger.error(f"Error initializing database adapter: {e}")
     
-    # Configure CORS
-    origins = app.config.get('CORS_ORIGINS', '*')
-    # Handle the case when CORS_ORIGINS is a property object
-    if hasattr(origins, '__get__'):
-        try:
-            origins = origins.__get__(None, app.config.__class__)
-            app.logger.info(f"CORS origins resolved from property: {origins}")
-        except Exception as e:
-            app.logger.error(f"Failed to resolve CORS origins property: {e}")
-            origins = ['https://ifscenter.netlify.app']  # Fallback to known frontend URL
+    # Configure CORS - simplified version with explicit Netlify domain
+    # Hardcode the Netlify domain directly to avoid property issues
+    # We'll keep the environment variable option but make sure it's handled as a string
+    cors_origins = os.environ.get('CORS_ORIGINS', 'https://ifscenter.netlify.app')
+    # Always ensure the Netlify domain is included
+    if 'https://ifscenter.netlify.app' not in cors_origins:
+        if ',' in cors_origins:
+            cors_origins += ',https://ifscenter.netlify.app'
+        else:
+            cors_origins = 'https://ifscenter.netlify.app'
     
-    # Explicitly add Netlify domain if it's not already included
-    if isinstance(origins, list) and 'https://ifscenter.netlify.app' not in origins:
-        origins.append('https://ifscenter.netlify.app')
-        app.logger.info(f"Added Netlify domain to CORS origins: {origins}")
-    
-    app.logger.info(f"Configuring CORS with origins: {origins}")
+    app.logger.info(f"Configuring CORS with origins: {cors_origins}")
     CORS(app, resources={r"/*": {
-        "origins": origins,
+        "origins": cors_origins,
         "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization", "X-Requested-With"],
         "supports_credentials": True
@@ -92,18 +88,13 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     @app.after_request
     def after_request(response):
         """Add CORS headers to every response."""
-        # Get origin from request
         origin = request.headers.get('Origin')
-        
-        # If origin exists and is in allowed origins, add CORS headers
-        allowed_origins = origins if isinstance(origins, list) else [origins] if origins != '*' else ['*']
-        
-        if origin and (origin in allowed_origins or '*' in allowed_origins):
-            response.headers.add('Access-Control-Allow-Origin', origin)
+        # If origin matches the Netlify domain, set the header
+        if origin == 'https://ifscenter.netlify.app':
+            response.headers.add('Access-Control-Allow-Origin', 'https://ifscenter.netlify.app')
             response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
             response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
             response.headers.add('Access-Control-Allow-Credentials', 'true')
-        
         return response
     
     @app.route('/health')
@@ -111,7 +102,7 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         """Simple health check endpoint."""
         return {"status": "ok", "message": "App is running"}, 200
 
-    # Add global OPTIONS handler for preflight requests
+    # Add simplified global OPTIONS handler for preflight requests
     @app.route('/<path:path>', methods=['OPTIONS'])
     def handle_options(path):
         """Global OPTIONS handler to ensure CORS preflight requests work for all routes."""
@@ -121,41 +112,15 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         # Get origin from request
         origin = request.headers.get('Origin')
         
-        # Get allowed origins - prefer the processed list we saved during initialization
-        allowed_origins = getattr(app, '_cors_origins', app.config.get('CORS_ORIGINS', '*'))
-        
-        # Handle property object
-        if hasattr(allowed_origins, '__get__'):
-            try:
-                allowed_origins = allowed_origins.__get__(None, app.config.__class__)
-            except Exception as e:
-                app.logger.error(f"Failed to resolve CORS origins property in OPTIONS handler: {e}")
-                allowed_origins = ['https://ifscenter.netlify.app']  # Fallback to known frontend URL
-        
-        # Convert to list for easier checking
-        if not isinstance(allowed_origins, list):
-            if allowed_origins == '*':
-                # Allow any origin
-                allowed_origins = ['*']
-            else:
-                allowed_origins = [allowed_origins]
-                
-        # Add Netlify domain explicitly if not present
-        if 'https://ifscenter.netlify.app' not in allowed_origins and '*' not in allowed_origins:
-            allowed_origins.append('https://ifscenter.netlify.app')
-            
-        # Set CORS headers based on origin
-        if origin and (origin in allowed_origins or '*' in allowed_origins):
+        # Simply check if origin is the Netlify domain
+        if origin == 'https://ifscenter.netlify.app':
             response.headers.extend({
-                'Access-Control-Allow-Origin': origin,
+                'Access-Control-Allow-Origin': 'https://ifscenter.netlify.app',
                 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
                 'Access-Control-Allow-Credentials': 'true',
                 'Access-Control-Max-Age': '3600'  # Cache preflight for 1 hour
             })
-        else:
-            # Log when origin is not allowed
-            app.logger.warning(f"Origin not allowed in OPTIONS: {origin} not in {allowed_origins}")
         
         return response
     
@@ -171,40 +136,19 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     @app.route('/api/cors-test', methods=['GET', 'OPTIONS'])
     def cors_test():
         """Test endpoint for CORS configuration."""
+        # Get origin from request
         origin = request.headers.get('Origin', 'Not provided')
-        raw_origins = app.config.get('CORS_ORIGINS', [])
+        # Check if origin matches Netlify
+        is_netlify = origin == 'https://ifscenter.netlify.app'
         
-        # Handle property object
-        if hasattr(raw_origins, '__get__'):
-            try:
-                resolved_origins = raw_origins.__get__(None, app.config.__class__)
-            except:
-                resolved_origins = "Failed to resolve property"
-        else:
-            resolved_origins = raw_origins
-            
-        # Get the processed origins that were actually used in CORS setup
-        processed_origins = getattr(app, '_cors_origins', 'Not stored') 
-        
-        # Check if the current origin is allowed
-        is_allowed = False
-        if isinstance(resolved_origins, list):
-            is_allowed = origin in resolved_origins or '*' in resolved_origins
-        elif isinstance(resolved_origins, str):
-            is_allowed = origin == resolved_origins or resolved_origins == '*'
-            
         return {
             "status": "ok", 
             "message": "CORS test successful",
             "flask_env": os.environ.get('FLASK_ENV', 'Not set'),
             "request_origin": origin,
-            "origin_allowed": is_allowed,
-            "raw_origins_config": str(raw_origins),
-            "resolved_origins": str(resolved_origins) if isinstance(resolved_origins, list) else resolved_origins,
-            "processed_origins": str(processed_origins),
-            "response_headers": {
-                "Access-Control-Allow-Origin": "Check response headers in browser"
-            }
+            "is_netlify_origin": is_netlify,
+            "cors_origins_env": os.environ.get('CORS_ORIGINS', 'Not set'),
+            "test_time": str(datetime.datetime.now())
         }
     
     @app.route('/api/db-status', methods=['GET'])
