@@ -78,7 +78,7 @@ class ProductionConfig(Config):
         origins = os.environ.get('CORS_ORIGINS', '').split(',')
         if not origins or origins == ['']:
             # Fallback to specific domains if not configured
-            return ['https://your-production-frontend-url.vercel.app']
+            return ['https://ifscenter.netlify.app']
         return origins
 
 
