@@ -6,7 +6,7 @@
     nvm install 22
     nvm use 22
     npm install --legacy-peer-deps
-    npm run build --legacy-peer-deps
+    CI=false npm run build --legacy-peer-deps
   """
   publish = "build"
 
