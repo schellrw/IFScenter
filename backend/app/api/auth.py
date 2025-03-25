@@ -69,6 +69,7 @@ def register():
     # Validate input
     is_valid, errors = validate_registration_input(data)
     if not is_valid:
+        logger.warning(f"Registration validation failed: {errors}")
         return jsonify({"error": "Validation failed", "details": errors}), 400
         
     username = data.get('username')
@@ -77,38 +78,76 @@ def register():
     
     logger.info(f"Registration attempt for: {username}, {email}")
     
+    # Check if using Supabase auth
+    using_supabase = use_supabase_auth
+    supabase_available = False
+    
+    # Test Supabase availability
+    if using_supabase:
+        from ..utils.supabase_client import supabase
+        supabase_available = supabase.is_available()
+        logger.info(f"Supabase available for auth: {supabase_available}")
+        
+        if not supabase_available:
+            logger.warning("Supabase is not available but SUPABASE_USE_FOR_AUTH is True")
+            # Fall back to JWT authentication if Supabase is not available
+            logger.info("Falling back to JWT authentication")
+    
     try:
-        # Use the auth adapter for registration
-        user_data, access_token = register_user(username, email, password)
+        # Use JWT authentication as a fallback if Supabase is not available
+        temp_use_jwt = not supabase_available and using_supabase
+        
+        # Call register_user with appropriate auth method
+        if temp_use_jwt:
+            # Temporarily import create_access_token
+            from flask_jwt_extended import create_access_token
+            
+            # Check for existing user
+            existing_user = User.query.filter_by(username=username).first()
+            if existing_user:
+                return jsonify({"error": "Username already exists"}), 400
+                
+            existing_email = User.query.filter_by(email=email).first()
+            if existing_email:
+                return jsonify({"error": "Email already exists"}), 400
+            
+            # Create new user with JWT auth
+            user = User(username=username, email=email, password=password)
+            db.session.add(user)
+            db.session.commit()
+            
+            # Create access token
+            access_token = create_access_token(identity=str(user.id))
+            
+            user_data = user.to_dict()
+        else:
+            # Use the auth adapter for registration as normal
+            user_data, access_token = register_user(username, email, password)
         
         # Create a new system for the user
-        # Note: This needs to be adapted for Supabase as well
         try:
-            if not use_supabase_auth:
-                # For traditional database, this is already handled in register_user
-                pass
-            else:
-                # For Supabase, we need to create the system
-                system = IFSSystem(user_id=user_data["id"])
-                db.session.add(system)
-                db.session.flush()
-                
-                # Add default "Self" part
-                self_part = Part(
-                    name="Self", 
-                    system_id=str(system.id),
-                    role="Self", 
-                    description="The compassionate core consciousness that can observe and interact with other parts"
-                )
-                db.session.add(self_part)
-                db.session.commit()
-                
-                logger.info(f"Created system and default 'Self' part for user {username} with ID {user_data.get('id')}")
+            # For all auth types, create a system
+            system = IFSSystem(user_id=user_data["id"])
+            db.session.add(system)
+            db.session.flush()
+            
+            # Add default "Self" part
+            self_part = Part(
+                name="Self", 
+                system_id=str(system.id),
+                role="Self", 
+                description="The compassionate core consciousness that can observe and interact with other parts"
+            )
+            db.session.add(self_part)
+            db.session.commit()
+            
+            logger.info(f"Created system and default 'Self' part for user {username} with ID {user_data.get('id')}")
         except Exception as system_error:
             logger.error(f"Error creating system for user {username}: {str(system_error)}")
-            # Still return success since the user was created in Supabase
-            # Frontend will need to handle creating a system on first login
-        
+            # Try to rollback just the system creation
+            db.session.rollback()
+            # Still return success since the user was created
+            
         confirmation_required = user_data.get("confirmation_required", False)
         if confirmation_required:
             return jsonify({
@@ -121,7 +160,8 @@ def register():
         return jsonify({
             "message": "User registered successfully",
             "access_token": access_token,
-            "user": user_data
+            "user": user_data,
+            "auth_method": "jwt" if temp_use_jwt else "supabase"
         }), 201
     except ValueError as e:
         logger.warning(f"Registration validation error: {str(e)}")
@@ -129,7 +169,17 @@ def register():
     except Exception as e:
         db.session.rollback()
         logger.error(f"Registration error: {str(e)}")
-        return jsonify({"error": "An error occurred during registration"}), 500
+        import traceback
+        tb = traceback.format_exc()
+        logger.error(f"Traceback: {tb}")
+        
+        # Return more detailed error
+        return jsonify({
+            "error": "An error occurred during registration", 
+            "details": str(e),
+            "using_supabase": using_supabase,
+            "supabase_available": supabase_available
+        }), 500
 
 @auth_bp.route('/login', methods=['POST'])
 def login():

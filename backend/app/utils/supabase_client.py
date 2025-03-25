@@ -54,12 +54,24 @@ class SupabaseManager:
             supabase_url = os.getenv('SUPABASE_URL')
             supabase_key = os.getenv('SUPABASE_KEY')
             
+            logging.info(f"Initializing Supabase client with URL: {supabase_url[:10]}... and key: {supabase_key[:10]}...")
+            
             if not supabase_url or not supabase_key:
                 logging.warning("Supabase URL or key not set. Supabase functionality will be limited.")
                 return
 
             self._client = create_client(supabase_url, supabase_key)
             logging.info("Supabase client initialized successfully")
+            
+            # Test the connection by making a simple API call
+            try:
+                # Try to get auth config as a simple test
+                auth_config = self._client.auth.get_config()
+                logging.info("Supabase connection test successful")
+            except Exception as test_error:
+                logging.error(f"Supabase connection test failed: {str(test_error)}")
+                self._client = None
+                
         except Exception as e:
             logging.error(f"Failed to initialize Supabase client: {str(e)}")
             self._client = None
