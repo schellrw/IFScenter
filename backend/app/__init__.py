@@ -302,6 +302,46 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
                 "traceback": tb
             }), 500
     
+    @app.route('/api/debug/supabase', methods=['GET'])
+    def debug_supabase():
+        """Debug endpoint to check Supabase configuration."""
+        from .utils.supabase_client import supabase
+        
+        # Get environment variables (show redacted values)
+        supabase_url = os.environ.get('SUPABASE_URL', 'Not set')
+        supabase_key = os.environ.get('SUPABASE_KEY', 'Not set')
+        use_for_auth = os.environ.get('SUPABASE_USE_FOR_AUTH', 'False')
+        use_for_db = os.environ.get('SUPABASE_USE_FOR_DB', 'False')
+        
+        # Redact sensitive information
+        if supabase_url != 'Not set':
+            supabase_url = f"{supabase_url[:10]}...{supabase_url[-5:]}"
+        if supabase_key != 'Not set':
+            supabase_key = f"{supabase_key[:10]}...{supabase_key[-5:]}" if len(supabase_key) > 15 else "Set but too short"
+            
+        # Check if Supabase client is available
+        is_available = supabase.is_available()
+        
+        # Test connection if available
+        connection_test = "Not tested"
+        if is_available:
+            try:
+                # Try to get auth config
+                auth_config = supabase.client.auth.get_config()
+                connection_test = "Success"
+            except Exception as e:
+                connection_test = f"Failed: {str(e)}"
+        
+        return jsonify({
+            "supabase_url": supabase_url,
+            "supabase_key": supabase_key,
+            "use_for_auth": use_for_auth,
+            "use_for_db": use_for_db,
+            "is_available": is_available,
+            "connection_test": connection_test,
+            "python_version": os.environ.get('PYTHON_VERSION', 'Unknown')
+        })
+    
     # Register blueprints
     from .api.auth import auth_bp
     from .api.parts import parts_bp
