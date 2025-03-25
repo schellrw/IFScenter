@@ -100,6 +100,17 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     def health():
         return {"status": "ok", "message": "Backend is healthy"}
     
+    @app.route('/api/cors-test', methods=['GET', 'OPTIONS'])
+    def cors_test():
+        """Test endpoint for CORS configuration."""
+        origins = app.config.get('CORS_ORIGINS', [])
+        return {
+            "status": "ok", 
+            "message": "CORS test successful",
+            "cors_origins": origins if isinstance(origins, list) else str(origins),
+            "request_origin": request.headers.get('Origin', 'Not provided')
+        }
+    
     @app.route('/api/db-status', methods=['GET'])
     def db_status():
         """Check database connection status."""
