@@ -89,21 +89,37 @@ const NewPartPage = () => {
       return;
     }
 
+    // Debug system object
+    console.log('System object before part creation:', system);
+    console.log('System ID:', system.id);
+    console.log('Authentication token status:', !!token);
+    
     try {
       setError('');
       setSaving(true);
-      await addPart(formData);
+      console.log('Calling addPart with data:', JSON.stringify(formData, null, 2));
+      
+      const result = await addPart(formData);
+      console.log('Part created successfully, result:', result);
       navigate('/parts');
     } catch (err) {
       console.error('Error creating part:', err);
       
+      // Enhanced error handling
+      const errorMessage = err.message || 'Unknown error';
+      
       // Handle specific error messages
-      if (err.message?.includes('Authentication token not available')) {
+      if (errorMessage.includes('Authentication token not available')) {
         setError('Authentication error. Please log out and log in again.');
       } else if (err.response?.status === 401) {
         setError('Authentication failed. Please log in again.');
+      } else if (err.response?.status === 500) {
+        // More detailed error for server errors
+        const serverError = err.response?.data?.error || 'Internal server error';
+        setError(`Server error: ${serverError}. Please try again or contact support.`);
+        console.error('Server error details:', err.response?.data);
       } else {
-        setError('Failed to create part. Please try again.');
+        setError(`Failed to create part: ${errorMessage}`);
       }
     } finally {
       setSaving(false);

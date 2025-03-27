@@ -160,6 +160,13 @@ export const IFSProvider = ({ children }) => {
         formattedPart.role = null;
       }
 
+      // Enhanced debugging - Log API URL and headers
+      console.log('API URL:', `${API_BASE_URL}/api/parts`);
+      console.log('Request headers:', {
+        'Authorization': `Bearer ${localToken ? localToken.substring(0, 10) + '...' : 'null'}`,
+        'Content-Type': 'application/json'
+      });
+
       const response = await axios.post(`${API_BASE_URL}/api/parts`, formattedPart, {
         headers: {
           'Authorization': `Bearer ${localToken}`,
@@ -173,8 +180,15 @@ export const IFSProvider = ({ children }) => {
     } catch (err) {
       console.error('Error adding part:', err);
       
-      // Check for specific error types
+      // Enhanced error logging for 500 errors
       if (err.response) {
+        console.error('Response status:', err.response.status);
+        console.error('Response headers:', err.response.headers);
+        
+        if (err.response.data) {
+          console.error('Error response data:', JSON.stringify(err.response.data, null, 2));
+        }
+        
         if (err.response.status === 401) {
           console.error('Authentication error: Token may be invalid or expired');
         } else if (err.response.status === 400) {
@@ -183,6 +197,11 @@ export const IFSProvider = ({ children }) => {
             console.error('Validation errors:', err.response.data.details);
           }
           throw new Error(`Bad request: ${JSON.stringify(err.response.data)}`);
+        } else if (err.response.status === 500) {
+          console.error('Server error (500) - This could be related to database issues or schema mismatches');
+          // Try to extract more detailed error if available
+          const errorMsg = err.response.data?.error || 'Unknown server error';
+          throw new Error(`Server error: ${errorMsg}`);
         }
       }
       
