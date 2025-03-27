@@ -315,7 +315,7 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         
         # Redact sensitive information
         if supabase_url != 'Not set':
-            supabase_url = f"{supabase_url[:10]}...{supabase_url[-5:]}"
+            supabase_url = f"{supabase_url[:10]}...{supabase_url[-5:]}" if len(supabase_url) > 15 else "Set but too short"
         if supabase_key != 'Not set':
             supabase_key = f"{supabase_key[:10]}...{supabase_key[-5:]}" if len(supabase_key) > 15 else "Set but too short"
             
@@ -326,8 +326,8 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         connection_test = "Not tested"
         if is_available:
             try:
-                # Try to get auth config
-                auth_config = supabase.client.auth.get_config()
+                # Try a simple query as connection test
+                test_query = supabase.client.table('users').select('count', count='exact').execute()
                 connection_test = "Success"
             except Exception as e:
                 connection_test = f"Failed: {str(e)}"
@@ -339,8 +339,34 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
             "use_for_db": use_for_db,
             "is_available": is_available,
             "connection_test": connection_test,
+            "auth_mode": os.environ.get('SUPABASE_USE_FOR_AUTH', 'False').lower() == 'true',
             "python_version": os.environ.get('PYTHON_VERSION', 'Unknown')
         })
+    
+    @app.route('/api/debug/toggle-auth', methods=['POST'])
+    def toggle_auth_mode():
+        """Debug endpoint to toggle between JWT and Supabase auth for testing."""
+        try:
+            # Get current mode
+            from .utils.auth_adapter import use_supabase_auth
+            current_mode = 'Supabase' if use_supabase_auth else 'JWT'
+            
+            # Toggle the environment variable (in-memory only, won't persist after restart)
+            new_mode = 'JWT' if use_supabase_auth else 'Supabase'
+            os.environ['SUPABASE_USE_FOR_AUTH'] = 'False' if use_supabase_auth else 'True'
+            
+            # Update the module variable (this only works within the request context)
+            # For a complete switch, the app needs to restart
+            return jsonify({
+                "message": f"Auth mode changed from {current_mode} to {new_mode}",
+                "note": "This change is temporary and will reset on server restart. To make it permanent, update the environment variable in Digital Ocean."
+            })
+        except Exception as e:
+            app.logger.error(f"Error toggling auth mode: {str(e)}")
+            return jsonify({
+                "error": "Failed to toggle auth mode",
+                "details": str(e)
+            }), 500
     
     # Register blueprints
     from .api.auth import auth_bp

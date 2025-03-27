@@ -39,8 +39,10 @@ class SupabaseManager:
     
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super(SupabaseManager, cls).__new__(cls)
-            cls._instance._initialized = False
+            instance = super(SupabaseManager, cls).__new__(cls)
+            instance._initialized = False
+            instance._client = None
+            cls._instance = instance
         return cls._instance
     
     def __init__(self):
@@ -54,7 +56,7 @@ class SupabaseManager:
             supabase_url = os.getenv('SUPABASE_URL')
             supabase_key = os.getenv('SUPABASE_KEY')
             
-            logging.info(f"Initializing Supabase client with URL: {supabase_url[:10]}... and key: {supabase_key[:10]}...")
+            logging.info(f"Initializing Supabase client with URL: {supabase_url[:10] if supabase_url else 'None'}... and key: {supabase_key[:10] if supabase_key else 'None'}...")
             
             if not supabase_url or not supabase_key:
                 logging.warning("Supabase URL or key not set. Supabase functionality will be limited.")
@@ -65,12 +67,13 @@ class SupabaseManager:
             
             # Test the connection by making a simple API call
             try:
-                # Try to get auth config as a simple test
-                auth_config = self._client.auth.get_config()
-                logging.info("Supabase connection test successful")
+                # Try simple query to test connection
+                user_count = self._client.table('users').select('count', count='exact').execute()
+                logging.info(f"Supabase connection test successful. User count: {user_count.count if hasattr(user_count, 'count') else 'unknown'}")
             except Exception as test_error:
                 logging.error(f"Supabase connection test failed: {str(test_error)}")
-                self._client = None
+                # Don't set client to None - this would break the fallback mechanism
+                # Let auth_adapter handle the fallback
                 
         except Exception as e:
             logging.error(f"Failed to initialize Supabase client: {str(e)}")

@@ -13,7 +13,7 @@ from flask import request, g, current_app, jsonify
 from flask_jwt_extended import verify_jwt_in_request, get_jwt_identity
 from werkzeug.local import LocalProxy
 
-# Use absolute imports instead of relative imports
+# Import supabase client properly for the package structure
 from backend.app.utils.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,36 @@ logger.setLevel(logging.DEBUG)
 # Configuration
 use_supabase_auth = os.environ.get('SUPABASE_USE_FOR_AUTH', 'False').lower() == 'true'
 logger.debug(f"SUPABASE_USE_FOR_AUTH value: {use_supabase_auth}")
+
+# Add a function to check if Supabase is truly available
+def is_supabase_available():
+    """Check if Supabase is available for authentication.
+    
+    Returns:
+        bool: True if Supabase is available, False otherwise.
+    """
+    if not use_supabase_auth:
+        # Not configured to use Supabase
+        return False
+        
+    # Check if client was initialized
+    if not supabase.is_available():
+        logger.warning("Supabase client not available, will use JWT authentication")
+        return False
+        
+    # Try a simple test call to ensure it's working
+    try:
+        # Do a lightweight operation to test connectivity
+        supabase.client.auth.get_session()
+        logger.info("Supabase auth connection verified")
+        return True
+    except Exception as e:
+        logger.error(f"Supabase auth connection failed: {str(e)}")
+        return False
+
+# Determine whether to actually use Supabase based on availability
+should_use_supabase = use_supabase_auth and supabase.is_available()
+logger.info(f"Actual auth mode: {'Supabase' if should_use_supabase else 'JWT'}")
 
 def get_current_user() -> Optional[Dict[str, Any]]:
     """Get the current authenticated user.
@@ -49,7 +79,7 @@ def auth_required(f):
         if request.method == 'OPTIONS':
             return f(*args, **kwargs)
             
-        if use_supabase_auth:
+        if use_supabase_auth and supabase.is_available():
             # Supabase Auth strategy
             try:
                 auth_header = request.headers.get('Authorization')
@@ -163,7 +193,10 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
     Returns:
         Tuple[Dict[str, Any], str]: User data and access token
     """
-    if use_supabase_auth:
+    # Check if we should use Supabase or JWT
+    actually_use_supabase = use_supabase_auth and supabase.is_available()
+    
+    if actually_use_supabase:
         try:
             # Register with Supabase
             signup_data = supabase.client.auth.sign_up({
@@ -239,7 +272,11 @@ def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str]:
     """
     logger.debug(f"Login attempt for user: {username}, auth mode: {'Supabase' if use_supabase_auth else 'JWT'}")
     
-    if use_supabase_auth:
+    # Check if we should use Supabase or JWT
+    actually_use_supabase = use_supabase_auth and supabase.is_available()
+    logger.info(f"Using {'Supabase' if actually_use_supabase else 'JWT'} authentication for login")
+    
+    if actually_use_supabase:
         try:
             # First, try to look up the user email if a username was provided
             user_email = username

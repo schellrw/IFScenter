@@ -55,6 +55,10 @@ def load_environment():
     logger.info(f"FLASK_ENV: {os.environ.get('FLASK_ENV', 'development')}")
     logger.info(f"DEBUG: {os.environ.get('DEBUG', 'False')}")
     
+    # Log authentication mode
+    auth_mode = "Supabase" if os.environ.get('SUPABASE_USE_FOR_AUTH', 'False').lower() == 'true' else "JWT"
+    logger.info(f"Authentication mode: {auth_mode}")
+    
     db_url = os.environ.get('DATABASE_URL', 'Not set')
     if db_url != 'Not set':
         # Hide credentials in logs
