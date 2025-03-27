@@ -88,6 +88,9 @@ def auth_required(f):
                     return jsonify({"error": "Missing or invalid authorization header"}), 401
                 
                 token = auth_header.split(' ')[1]
+                # Store the token in Flask's g object for database operations
+                g.user_token = token
+                
                 # Verify with Supabase
                 logger.debug(f"Verifying token with Supabase: {token[:10]}...")
                 user_data = supabase.client.auth.get_user(token)

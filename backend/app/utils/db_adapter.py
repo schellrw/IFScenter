@@ -55,6 +55,27 @@ class DBAdapter:
             result[column.name] = value
         return result
     
+    def _get_auth_headers(self) -> Dict[str, str]:
+        """Get authentication headers for Supabase requests.
+        
+        Returns:
+            Dict[str, str]: Headers dictionary with authentication if available
+        """
+        headers = {}
+        
+        if self.using_supabase:
+            # Get the user token from Flask's g object (if available)
+            from flask import g
+            user_token = getattr(g, 'user_token', None)
+            
+            if user_token:
+                logger.debug(f"Using user token for Supabase request: {user_token[:10]}...")
+                headers['Authorization'] = f'Bearer {user_token}'
+            else:
+                logger.warning("No user token available for Supabase request")
+                
+        return headers
+    
     def get_by_id(self, table: str, model_class, id_value: str) -> Optional[Dict[str, Any]]:
         """Get a record by ID.
         
@@ -68,7 +89,10 @@ class DBAdapter:
         """
         try:
             if self.using_supabase:
-                response = supabase.client.table(table).select('*').eq('id', id_value).execute()
+                # Get authentication headers
+                headers = self._get_auth_headers()
+                
+                response = supabase.client.table(table).select('*').eq('id', id_value).execute(headers=headers)
                 if response.data and len(response.data) > 0:
                     return response.data[0]
                 return None
@@ -94,6 +118,9 @@ class DBAdapter:
         """
         try:
             if self.using_supabase:
+                # Get authentication headers
+                headers = self._get_auth_headers()
+                
                 query = supabase.client.table(table).select('*')
                 
                 # Apply filters
@@ -101,7 +128,7 @@ class DBAdapter:
                     for key, value in filter_dict.items():
                         query = query.eq(key, value)
                 
-                response = query.execute()
+                response = query.execute(headers=headers)
                 return response.data
             else:
                 query = model_class.query
@@ -141,7 +168,12 @@ class DBAdapter:
                         processed_data[key] = value
                 
                 logger.debug(f"Sending data to Supabase: {processed_data}")
-                response = supabase.client.table(table).insert(processed_data).execute()
+                
+                # Get authentication headers
+                headers = self._get_auth_headers()
+                
+                # Use headers in the request
+                response = supabase.client.table(table).insert(processed_data, headers=headers).execute()
                 
                 if not response:
                     logger.error(f"Supabase insert returned None response")
@@ -183,7 +215,10 @@ class DBAdapter:
         """
         try:
             if self.using_supabase:
-                response = supabase.client.table(table).update(data).eq('id', id_value).execute()
+                # Get authentication headers
+                headers = self._get_auth_headers()
+                
+                response = supabase.client.table(table).update(data).eq('id', id_value).execute(headers=headers)
                 if response.data and len(response.data) > 0:
                     return response.data[0]
                 return None
@@ -216,7 +251,10 @@ class DBAdapter:
         """
         try:
             if self.using_supabase:
-                response = supabase.client.table(table).delete().eq('id', id_value).execute()
+                # Get authentication headers
+                headers = self._get_auth_headers()
+                
+                response = supabase.client.table(table).delete().eq('id', id_value).execute(headers=headers)
                 return len(response.data) > 0
             else:
                 record = model_class.query.get(id_value)
@@ -248,6 +286,9 @@ class DBAdapter:
         """
         try:
             if self.using_supabase:
+                # Get authentication headers
+                headers = self._get_auth_headers()
+                
                 # Supabase supports pgvector via Functions/RPC
                 # This is a simplified example; RPC endpoint needs to be created in Supabase
                 try:
@@ -258,7 +299,8 @@ class DBAdapter:
                             'vector_column': vector_column,
                             'query_vector': query_vector,
                             'limit_results': limit
-                        }
+                        },
+                        headers=headers
                     ).execute()
                     return response.data
                 except Exception as e:
@@ -299,6 +341,9 @@ class DBAdapter:
         """
         try:
             if self.using_supabase:
+                # Get authentication headers
+                headers = self._get_auth_headers()
+                
                 query = supabase.client.table(table).select('id', count='exact')
                 
                 # Apply filters
@@ -306,7 +351,7 @@ class DBAdapter:
                     for key, value in filter_dict.items():
                         query = query.eq(key, value)
                 
-                response = query.execute()
+                response = query.execute(headers=headers)
                 return response.count if hasattr(response, 'count') else len(response.data)
             else:
                 from sqlalchemy import func
