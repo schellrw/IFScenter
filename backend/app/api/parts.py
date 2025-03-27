@@ -123,15 +123,15 @@ def create_part():
         # Use the database adapter
         try:
             part = current_app.db_adapter.create(TABLE_NAME, Part, data)
+            if part is None:
+                logger.error("Database adapter returned None for created part")
+                return jsonify({"error": "Failed to create part"}), 500
+                
             logger.debug(f"Part created successfully with ID: {part.get('id', 'unknown')}")
         except Exception as e:
             logger.error(f"Database adapter failed to create part: {str(e)}")
             return jsonify({"error": f"Failed to create part: {str(e)}"}), 500
         
-        if not part:
-            logger.error("Database adapter returned None for created part")
-            return jsonify({"error": "Failed to create part"}), 500
-            
         return jsonify(part), 201
     except ValidationError as e:
         logger.error(f"Validation error: {e.messages}")

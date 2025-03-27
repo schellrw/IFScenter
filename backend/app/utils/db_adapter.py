@@ -130,10 +130,30 @@ class DBAdapter:
         """
         try:
             if self.using_supabase:
-                response = supabase.client.table(table).insert(data).execute()
-                if response.data and len(response.data) > 0:
+                # Pre-process data for Supabase - ensure JSONB fields are properly formatted
+                processed_data = {}
+                for key, value in data.items():
+                    # Convert any list fields to properly formatted JSON
+                    if isinstance(value, list):
+                        logger.debug(f"Preprocessing list field {key} for Supabase")
+                        processed_data[key] = value
+                    else:
+                        processed_data[key] = value
+                
+                logger.debug(f"Sending data to Supabase: {processed_data}")
+                response = supabase.client.table(table).insert(processed_data).execute()
+                
+                if not response:
+                    logger.error(f"Supabase insert returned None response")
+                    return None
+                    
+                logger.debug(f"Supabase response: {response}")
+                
+                if hasattr(response, 'data') and response.data and len(response.data) > 0:
                     return response.data[0]
-                return None
+                else:
+                    logger.error(f"Supabase insert returned empty data: {response}")
+                    return None
             else:
                 record = model_class(**data)
                 self.db.session.add(record)
@@ -141,6 +161,10 @@ class DBAdapter:
                 return self._model_to_dict(record)
         except Exception as e:
             logger.error(f"Error creating record in {table}: {e}")
+            # Log more details about the error
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            
             if not self.using_supabase:
                 self.db.session.rollback()
             return None

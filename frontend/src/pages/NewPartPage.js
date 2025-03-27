@@ -93,6 +93,8 @@ const NewPartPage = () => {
     console.log('System object before part creation:', system);
     console.log('System ID:', system.id);
     console.log('Authentication token status:', !!token);
+    console.log('System object (JSON):', JSON.stringify(system, null, 2));
+    console.log('Existing parts:', system.parts ? Object.keys(system.parts).length : 'none');
     
     try {
       setError('');
