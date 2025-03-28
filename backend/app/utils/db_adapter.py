@@ -77,24 +77,44 @@ class DBAdapter:
         return headers
     
     def get_by_id(self, table: str, model_class, id_value: str) -> Optional[Dict[str, Any]]:
-        """Get a record by ID.
-        
-        Args:
-            table: Table name (for Supabase)
-            model_class: SQLAlchemy model class (for SQLAlchemy)
-            id_value: ID value to look up
-            
-        Returns:
-            Record as dictionary or None if not found
-        """
+        """Get a record by ID."""
         try:
             if self.using_supabase:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                response = supabase.client.table(table).select('*').eq('id', id_value).execute(headers=headers)
-                if response.data and len(response.data) > 0:
-                    return response.data[0]
+                # Make a direct HTTP request to the Supabase REST API
+                import requests
+                
+                # Get the Supabase URL and key from the client
+                supabase_url = supabase.client.rest_url
+                api_key = supabase.client.supabase_key
+                
+                # Build the URL for the specific record
+                url = f"{supabase_url}/{table}?id=eq.{id_value}"
+                
+                # Combine our auth headers with the required Supabase headers
+                request_headers = {
+                    'apikey': api_key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+                # Add the Authorization header if we have it
+                if headers and 'Authorization' in headers:
+                    request_headers['Authorization'] = headers['Authorization']
+                
+                # Make the GET request
+                response = requests.get(url, headers=request_headers)
+                
+                if response.status_code >= 200 and response.status_code < 300:
+                    # Success
+                    response_data = response.json()
+                    if response_data and len(response_data) > 0:
+                        return response_data[0]
+                    return None
+                
+                # Log error details
+                logger.error(f"Supabase REST API error: {response.status_code} - {response.text}")
                 return None
             else:
                 record = model_class.query.get(id_value)
@@ -106,30 +126,48 @@ class DBAdapter:
             return None
     
     def get_all(self, table: str, model_class, filter_dict: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """Get all records, optionally filtered.
-        
-        Args:
-            table: Table name (for Supabase)
-            model_class: SQLAlchemy model class (for SQLAlchemy)
-            filter_dict: Optional dictionary of filter conditions
-            
-        Returns:
-            List of records as dictionaries
-        """
+        """Get all records, optionally filtered."""
         try:
             if self.using_supabase:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                query = supabase.client.table(table).select('*')
+                # Make a direct HTTP request to the Supabase REST API
+                import requests
                 
-                # Apply filters
+                # Get the Supabase URL and key from the client
+                supabase_url = supabase.client.rest_url
+                api_key = supabase.client.supabase_key
+                
+                # Build the URL with filters if provided
+                url = f"{supabase_url}/{table}"
+                params = {}
+                
+                # Apply filters if provided
                 if filter_dict:
                     for key, value in filter_dict.items():
-                        query = query.eq(key, value)
+                        params[key] = f"eq.{value}"
                 
-                response = query.execute(headers=headers)
-                return response.data
+                # Combine our auth headers with the required Supabase headers
+                request_headers = {
+                    'apikey': api_key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+                # Add the Authorization header if we have it
+                if headers and 'Authorization' in headers:
+                    request_headers['Authorization'] = headers['Authorization']
+                
+                # Make the GET request
+                response = requests.get(url, headers=request_headers, params=params)
+                
+                if response.status_code >= 200 and response.status_code < 300:
+                    # Success
+                    return response.json()
+                
+                # Log error details
+                logger.error(f"Supabase REST API error: {response.status_code} - {response.text}")
+                return []
             else:
                 query = model_class.query
                 
@@ -157,35 +195,46 @@ class DBAdapter:
         """
         try:
             if self.using_supabase:
-                # Pre-process data for Supabase - ensure JSONB fields are properly formatted
+                # Pre-process data
                 processed_data = {}
                 for key, value in data.items():
-                    # Convert any list fields to properly formatted JSON
-                    if isinstance(value, list):
-                        logger.debug(f"Preprocessing list field {key} for Supabase")
-                        processed_data[key] = value
-                    else:
-                        processed_data[key] = value
-                
-                logger.debug(f"Sending data to Supabase: {processed_data}")
+                    processed_data[key] = value
                 
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                # Build the query with headers
-                response = supabase.client.table(table).insert(processed_data).execute(headers=headers)
+                # Make a direct HTTP request to the Supabase REST API instead
+                import requests
                 
-                if not response:
-                    logger.error(f"Supabase insert returned None response")
-                    return None
-                    
-                logger.debug(f"Supabase response: {response}")
+                # Get the Supabase URL and key from the client
+                supabase_url = supabase.client.rest_url
+                api_key = supabase.client.supabase_key
                 
-                if hasattr(response, 'data') and response.data and len(response.data) > 0:
-                    return response.data[0]
-                else:
-                    logger.error(f"Supabase insert returned empty data: {response}")
-                    return None
+                # Build the URL for the table
+                url = f"{supabase_url}/{table}"
+                
+                # Combine our auth headers with the required Supabase headers
+                request_headers = {
+                    'apikey': api_key,
+                    'Content-Type': 'application/json',
+                    'Prefer': 'return=representation'
+                }
+                # Add the Authorization header if we have it
+                if headers and 'Authorization' in headers:
+                    request_headers['Authorization'] = headers['Authorization']
+                
+                # Make the POST request
+                response = requests.post(url, json=processed_data, headers=request_headers)
+                
+                if response.status_code >= 200 and response.status_code < 300:
+                    # Success
+                    response_data = response.json()
+                    if response_data and len(response_data) > 0:
+                        return response_data[0]
+                
+                # Log error details
+                logger.error(f"Supabase REST API error: {response.status_code} - {response.text}")
+                return None
             else:
                 record = model_class(**data)
                 self.db.session.add(record)
@@ -202,27 +251,45 @@ class DBAdapter:
             return None
     
     def update(self, table: str, model_class, id_value: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Update a record.
-        
-        Args:
-            table: Table name (for Supabase)
-            model_class: SQLAlchemy model class (for SQLAlchemy)
-            id_value: ID of the record to update
-            data: Updated record data
-            
-        Returns:
-            Updated record as dictionary or None if failed
-        """
+        """Update a record."""
         try:
             if self.using_supabase:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                query = supabase.client.table(table).update(data).eq('id', id_value)
-                response = query.execute(headers=headers)
+                # Make a direct HTTP request to the Supabase REST API
+                import requests
                 
-                if response.data and len(response.data) > 0:
-                    return response.data[0]
+                # Get the Supabase URL and key from the client
+                supabase_url = supabase.client.rest_url
+                api_key = supabase.client.supabase_key
+                
+                # Build the URL for the specific record
+                url = f"{supabase_url}/{table}?id=eq.{id_value}"
+                
+                # Combine our auth headers with the required Supabase headers
+                request_headers = {
+                    'apikey': api_key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Prefer': 'return=representation'
+                }
+                # Add the Authorization header if we have it
+                if headers and 'Authorization' in headers:
+                    request_headers['Authorization'] = headers['Authorization']
+                
+                # Make the PATCH request
+                response = requests.patch(url, json=data, headers=request_headers)
+                
+                if response.status_code >= 200 and response.status_code < 300:
+                    # Success
+                    response_data = response.json()
+                    if response_data and len(response_data) > 0:
+                        return response_data[0]
+                    return None
+                
+                # Log error details
+                logger.error(f"Supabase REST API error: {response.status_code} - {response.text}")
                 return None
             else:
                 record = model_class.query.get(id_value)
@@ -241,24 +308,35 @@ class DBAdapter:
             return None
     
     def delete(self, table: str, model_class, id_value: str) -> bool:
-        """Delete a record.
-        
-        Args:
-            table: Table name (for Supabase)
-            model_class: SQLAlchemy model class (for SQLAlchemy)
-            id_value: ID of the record to delete
-            
-        Returns:
-            True if successful, False otherwise
-        """
+        """Delete a record."""
         try:
             if self.using_supabase:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                query = supabase.client.table(table).delete().eq('id', id_value)
-                response = query.execute(headers=headers)
-                return len(response.data) > 0
+                # Make a direct HTTP request to the Supabase REST API
+                import requests
+                
+                # Get the Supabase URL and key from the client
+                supabase_url = supabase.client.rest_url
+                api_key = supabase.client.supabase_key
+                
+                # Build the URL for the specific record
+                url = f"{supabase_url}/{table}?id=eq.{id_value}"
+                
+                # Combine our auth headers with the required Supabase headers
+                request_headers = {
+                    'apikey': api_key,
+                    'Content-Type': 'application/json'
+                }
+                # Add the Authorization header if we have it
+                if headers and 'Authorization' in headers:
+                    request_headers['Authorization'] = headers['Authorization']
+                
+                # Make the DELETE request
+                response = requests.delete(url, headers=request_headers)
+                
+                return response.status_code >= 200 and response.status_code < 300
             else:
                 record = model_class.query.get(id_value)
                 if not record:
@@ -275,41 +353,52 @@ class DBAdapter:
     
     def query_vector_similarity(self, table: str, model_class, vector_column: str, 
                                query_vector: List[float], limit: int = 5) -> List[Dict[str, Any]]:
-        """Query for vector similarity using pgvector.
-        
-        Args:
-            table: Table name (for Supabase)
-            model_class: SQLAlchemy model class (for SQLAlchemy)
-            vector_column: Name of the vector column
-            query_vector: Query vector as list of floats
-            limit: Maximum number of results
-            
-        Returns:
-            List of records as dictionaries, ordered by similarity
-        """
+        """Query for vector similarity using pgvector."""
         try:
             if self.using_supabase:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                # Supabase supports pgvector via Functions/RPC
-                # This is a simplified example; RPC endpoint needs to be created in Supabase
-                try:
-                    response = supabase.client.rpc(
-                        'vector_search',
-                        {
-                            'table_name': table,
-                            'vector_column': vector_column,
-                            'query_vector': query_vector,
-                            'limit_results': limit
-                        }
-                    ).execute(headers=headers)
-                    return response.data
-                except Exception as e:
-                    logger.error(f"Supabase vector search error: {e}")
-                    return []
+                # Make a direct HTTP request to the Supabase RPC endpoint
+                import requests
+                
+                # Get the Supabase URL and key from the client
+                supabase_url = supabase.client.rest_url
+                api_key = supabase.client.supabase_key
+                
+                # Build the URL for the RPC endpoint
+                url = f"{supabase_url.replace('/rest/v1', '/rest/v1/rpc')}/vector_search"
+                
+                # Prepare the RPC parameters
+                rpc_params = {
+                    'table_name': table,
+                    'vector_column': vector_column,
+                    'query_vector': query_vector,
+                    'limit_results': limit
+                }
+                
+                # Combine our auth headers with the required Supabase headers
+                request_headers = {
+                    'apikey': api_key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                }
+                # Add the Authorization header if we have it
+                if headers and 'Authorization' in headers:
+                    request_headers['Authorization'] = headers['Authorization']
+                
+                # Make the RPC POST request
+                response = requests.post(url, json=rpc_params, headers=request_headers)
+                
+                if response.status_code >= 200 and response.status_code < 300:
+                    # Success
+                    return response.json()
+                
+                # Log error details
+                logger.error(f"Supabase RPC error: {response.status_code} - {response.text}")
+                return []
             else:
-                # SQLAlchemy with pgvector extension
+                # SQLAlchemy with pgvector extension - unchanged
                 from sqlalchemy import text
                 
                 query = text(f"""
@@ -331,29 +420,67 @@ class DBAdapter:
             return []
     
     def count(self, table: str, model_class, filter_dict: Optional[Dict[str, Any]] = None) -> int:
-        """Count records, optionally filtered.
-        
-        Args:
-            table: Table name (for Supabase)
-            model_class: SQLAlchemy model class (for SQLAlchemy)
-            filter_dict: Optional dictionary of filter conditions
-            
-        Returns:
-            Count of matching records
-        """
+        """Count records, optionally filtered."""
         try:
             if self.using_supabase:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                query = supabase.client.table(table).select('id', count='exact')
-                response = query.execute(headers=headers)
-                return response.count if hasattr(response, 'count') else len(response.data)
+                # Make a direct HTTP request to the Supabase REST API
+                import requests
+                
+                # Get the Supabase URL and key from the client
+                supabase_url = supabase.client.rest_url
+                api_key = supabase.client.supabase_key
+                
+                # Build the URL with filters if provided
+                url = f"{supabase_url}/{table}"
+                params = {}
+                
+                # Apply filters if provided
+                if filter_dict:
+                    for key, value in filter_dict.items():
+                        params[key] = f"eq.{value}"
+                
+                # Combine our auth headers with the required Supabase headers
+                request_headers = {
+                    'apikey': api_key,
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Prefer': 'count=exact'
+                }
+                # Add the Authorization header if we have it
+                if headers and 'Authorization' in headers:
+                    request_headers['Authorization'] = headers['Authorization']
+                
+                # Make a HEAD request to get the count
+                response = requests.head(url, headers=request_headers, params=params)
+                
+                if response.status_code >= 200 and response.status_code < 300:
+                    # Get count from headers
+                    content_range = response.headers.get('content-range', '')
+                    if content_range:
+                        try:
+                            # Format is like "0-9/42" where 42 is the total count
+                            total_count = int(content_range.split('/')[1])
+                            return total_count
+                        except (IndexError, ValueError):
+                            logger.error(f"Failed to parse content-range header: {content_range}")
+                            return 0
+                    
+                    # Fallback to getting all records and counting them
+                    response = requests.get(url, headers=request_headers, params=params)
+                    if response.status_code >= 200 and response.status_code < 300:
+                        return len(response.json())
+                
+                # Log error details
+                logger.error(f"Supabase REST API count error: {response.status_code}")
+                return 0
             else:
                 from sqlalchemy import func
                 
                 # Explicit column reference for count
-                query = self.db.session.query(func.count(model_class.id))  # type: ignore
+                query = self.db.session.query(func.count(model_class.__table__.columns.id))
                 
                 # Apply filters
                 if filter_dict:
