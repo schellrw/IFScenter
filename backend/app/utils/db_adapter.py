@@ -173,11 +173,7 @@ class DBAdapter:
                 headers = self._get_auth_headers()
                 
                 # Build the query with headers
-                query = supabase.client.table(table).insert(processed_data)
-                for key, value in headers.items():
-                    query = query.header(key, value)
-                
-                response = query.execute()
+                response = supabase.client.table(table).insert(processed_data).execute(headers=headers)
                 
                 if not response:
                     logger.error(f"Supabase insert returned None response")
@@ -223,9 +219,7 @@ class DBAdapter:
                 headers = self._get_auth_headers()
                 
                 query = supabase.client.table(table).update(data).eq('id', id_value)
-                for key, value in headers.items():
-                    query = query.header(key, value)
-                response = query.execute()
+                response = query.execute(headers=headers)
                 
                 if response.data and len(response.data) > 0:
                     return response.data[0]
@@ -263,9 +257,7 @@ class DBAdapter:
                 headers = self._get_auth_headers()
                 
                 query = supabase.client.table(table).delete().eq('id', id_value)
-                for key, value in headers.items():
-                    query = query.header(key, value)
-                response = query.execute()
+                response = query.execute(headers=headers)
                 return len(response.data) > 0
             else:
                 record = model_class.query.get(id_value)
@@ -355,9 +347,7 @@ class DBAdapter:
                 headers = self._get_auth_headers()
                 
                 query = supabase.client.table(table).select('id', count='exact')
-                for key, value in headers.items():
-                    query = query.header(key, value)
-                response = query.execute()
+                response = query.execute(headers=headers)
                 return response.count if hasattr(response, 'count') else len(response.data)
             else:
                 from sqlalchemy import func
