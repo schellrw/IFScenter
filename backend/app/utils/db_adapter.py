@@ -172,8 +172,12 @@ class DBAdapter:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                # Move headers to execute() instead of insert()
-                response = supabase.client.table(table).insert(processed_data).execute(headers=headers)
+                # Build the query with headers
+                query = supabase.client.table(table).insert(processed_data)
+                for key, value in headers.items():
+                    query = query.header(key, value)
+                
+                response = query.execute()
                 
                 if not response:
                     logger.error(f"Supabase insert returned None response")
@@ -218,7 +222,11 @@ class DBAdapter:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                response = supabase.client.table(table).update(data).eq('id', id_value).execute(headers=headers)
+                query = supabase.client.table(table).update(data).eq('id', id_value)
+                for key, value in headers.items():
+                    query = query.header(key, value)
+                response = query.execute()
+                
                 if response.data and len(response.data) > 0:
                     return response.data[0]
                 return None
@@ -254,7 +262,10 @@ class DBAdapter:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                response = supabase.client.table(table).delete().eq('id', id_value).execute(headers=headers)
+                query = supabase.client.table(table).delete().eq('id', id_value)
+                for key, value in headers.items():
+                    query = query.header(key, value)
+                response = query.execute()
                 return len(response.data) > 0
             else:
                 record = model_class.query.get(id_value)
@@ -344,19 +355,15 @@ class DBAdapter:
                 headers = self._get_auth_headers()
                 
                 query = supabase.client.table(table).select('id', count='exact')
-                
-                # Apply filters
-                if filter_dict:
-                    for key, value in filter_dict.items():
-                        query = query.eq(key, value)
-                
-                response = query.execute(headers=headers)
+                for key, value in headers.items():
+                    query = query.header(key, value)
+                response = query.execute()
                 return response.count if hasattr(response, 'count') else len(response.data)
             else:
                 from sqlalchemy import func
                 
-                # Use model_class.__table__.columns.id instead of model_class.id
-                query = self.db.session.query(func.count(model_class.__table__.columns.id))
+                # Explicit column reference for count
+                query = self.db.session.query(func.count(model_class.id))  # type: ignore
                 
                 # Apply filters
                 if filter_dict:
