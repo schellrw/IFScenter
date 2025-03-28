@@ -10,7 +10,7 @@ from typing import Dict, List, Any, Optional, Union
 from uuid import UUID
 
 from flask_sqlalchemy import SQLAlchemy
-from .supabase_client import supabase
+from backend.app.utils.supabase_client import supabase
 
 logger = logging.getLogger(__name__)
 
@@ -172,8 +172,8 @@ class DBAdapter:
                 # Get authentication headers
                 headers = self._get_auth_headers()
                 
-                # Use headers in the request
-                response = supabase.client.table(table).insert(processed_data, headers=headers).execute()
+                # Move headers to execute() instead of insert()
+                response = supabase.client.table(table).insert(processed_data).execute(headers=headers)
                 
                 if not response:
                     logger.error(f"Supabase insert returned None response")
@@ -299,9 +299,8 @@ class DBAdapter:
                             'vector_column': vector_column,
                             'query_vector': query_vector,
                             'limit_results': limit
-                        },
-                        headers=headers
-                    ).execute()
+                        }
+                    ).execute(headers=headers)
                     return response.data
                 except Exception as e:
                     logger.error(f"Supabase vector search error: {e}")
@@ -356,7 +355,8 @@ class DBAdapter:
             else:
                 from sqlalchemy import func
                 
-                query = self.db.session.query(func.count(model_class.id))
+                # Use model_class.__table__.columns.id instead of model_class.id
+                query = self.db.session.query(func.count(model_class.__table__.columns.id))
                 
                 # Apply filters
                 if filter_dict:

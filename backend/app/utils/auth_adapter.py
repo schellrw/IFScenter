@@ -15,6 +15,7 @@ from werkzeug.local import LocalProxy
 
 # Import supabase client properly for the package structure
 from backend.app.utils.supabase_client import supabase
+from backend.app.models import db, User
 
 logger = logging.getLogger(__name__)
 
