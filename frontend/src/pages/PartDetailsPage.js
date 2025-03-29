@@ -293,38 +293,6 @@ const PartDetailsPage = () => {
                   )) || <Typography>No needs specified</Typography>}
                 </ul>
               </Box>
-              
-              <Box sx={{ mt: 4, display: 'flex', justifyContent: 'center', gap: 2 }}>
-                <Button
-                  variant="contained"
-                  color="primary"
-                  startIcon={<ChatIcon />}
-                  onClick={() => navigate(`/chat/${partId}`)}
-                  fullWidth
-                >
-                  + Start New Chat
-                </Button>
-                <Button
-                  variant="outlined"
-                  color="primary"
-                  startIcon={<HistoryIcon />}
-                  onClick={() => navigate(`/conversations/${partId}`)}
-                  fullWidth
-                >
-                  View Conversations
-                </Button>
-              </Box>
-              
-              <Box sx={{ mt: 2, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                <Typography variant="caption" color="text.secondary" sx={{ mb: 1, textAlign: 'center' }}>
-                  Generate a personality profile to enhance search and conversation abilities
-                </Typography>
-                <GenerateVectorsButton 
-                  partId={partId} 
-                  variant="text" 
-                  size="small"
-                />
-              </Box>
             </Stack>
           )}
         </Paper>
