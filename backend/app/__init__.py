@@ -374,10 +374,10 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     from .api.journals import journals_bp
     from .api.relationships import relationships_bp
     from .api.systems import systems_bp
-    from .api.conversations import conversations_bp
+    from .api.conversations import guided_sessions_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api')
-    app.register_blueprint(conversations_bp, url_prefix='/api')
+    app.register_blueprint(guided_sessions_bp, url_prefix='/api')
     app.register_blueprint(parts_bp, url_prefix='/api')
     app.register_blueprint(journals_bp, url_prefix='/api')
     app.register_blueprint(relationships_bp, url_prefix='/api')

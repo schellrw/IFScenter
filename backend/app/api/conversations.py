@@ -1,6 +1,7 @@
 """
-API endpoints for part conversations.
+API endpoints for managing Guided IFS Sessions and their messages.
 Supports both SQLAlchemy and Supabase backends through the database adapter.
+Contains deprecated endpoints for old part_conversations for reference.
 """
 import logging
 from uuid import UUID
@@ -12,13 +13,24 @@ from flask_jwt_extended import jwt_required, get_jwt_identity
 from marshmallow import Schema, fields, ValidationError
 from sqlalchemy.exc import SQLAlchemyError
 
-from ..models import db, Part, PartConversation, ConversationMessage, PartPersonalityVector, User, IFSSystem
+# --- Model Imports ---
+# Assuming models are correctly defined in app.models
+# Adjust imports based on your actual model file structure
+try:
+    from ..models import db, Part, GuidedSession, SessionMessage, User, IFSSystem
+    # Import deprecated models if needed for reference/migration logic
+    from ..models import PartConversation, ConversationMessage, PartPersonalityVector
+    MODELS_AVAILABLE = True
+except ImportError as e:
+    MODELS_AVAILABLE = False
+    logging.getLogger(__name__).error(f"Error importing models: {e}. API endpoints may fail.")
+
 from ..utils.auth_adapter import auth_required
 
 # Configure logging first
 logger = logging.getLogger(__name__)
 
-# Try importing the embedding service
+# --- Service Imports ---
 try:
     from ..utils.embeddings import EmbeddingManager
     embedding_manager = EmbeddingManager()
@@ -27,757 +39,455 @@ except ImportError:
     EMBEDDINGS_AVAILABLE = False
     logger.warning("Embedding manager not available, vector operations will be disabled")
 
-# Try importing the LLM service
 try:
     from ..utils.llm_service import LLMService
     llm_service = LLMService()
     LLM_AVAILABLE = True
 except ImportError:
     LLM_AVAILABLE = False
-    logger.warning("LLM service not available, part conversations will be limited")
+    logger.warning("LLM service not available, guide responses will be disabled")
 
-# Create a blueprint
-conversations_bp = Blueprint('conversations', __name__)
+# --- Blueprint Setup ---
+# Rename blueprint to reflect new focus
+guided_sessions_bp = Blueprint('guided_sessions', __name__)
 
-# Table names for Supabase operations
-CONVERSATION_TABLE = 'part_conversations'
-CONVERSATION_MESSAGE_TABLE = 'conversation_messages'
+# --- Table Names (Using model.__tablename__ is preferred but keeping constants for potential direct DB calls) ---
+GUIDED_SESSION_TABLE = 'guided_sessions'
+SESSION_MESSAGE_TABLE = 'session_messages'
 PART_TABLE = 'parts'
-PERSONALITY_VECTOR_TABLE = 'part_personality_vectors'
+SYSTEM_TABLE = 'ifs_systems' # Assuming this table name
+USER_TABLE = 'users' # Assuming this table name
 
-# Input validation schemas
-class ConversationSchema(Schema):
-    """Conversation schema validation."""
-    title = fields.String(required=True)
-    part_id = fields.String(required=True)
+# --- Input Validation Schemas ---
+class GuidedSessionSchema(Schema):
+    """Schema for creating a new guided session."""
+    title = fields.String(required=False, allow_none=True)
+    system_id = fields.UUID(required=True) # User must belong to this system
+    initial_focus_part_id = fields.UUID(required=False, allow_none=True, data_key="focusPartId")
 
-class MessageSchema(Schema):
-    """Message schema validation."""
-    content = fields.String(required=True)
-    auto_respond = fields.Boolean(required=False, default=True)
+class SessionMessageSchema(Schema):
+    """Schema for adding a message to a session."""
+    content = fields.String(required=True, validate=lambda s: len(s) > 0)
 
-@conversations_bp.route('/conversations', methods=['GET'])
+class UpdateSessionSchema(Schema):
+    """Schema for updating session details."""
+    title = fields.String(required=False, allow_none=True)
+    summary = fields.String(required=False, allow_none=True)
+    status = fields.String(required=False, validate=lambda s: s in ['active', 'archived'])
+    current_focus_part_id = fields.UUID(required=False, allow_none=True, data_key="focusPartId")
+
+# === Guided Session Endpoints ===
+
+@guided_sessions_bp.route('/guided-sessions', methods=['GET'])
 @auth_required
-def get_conversations():
-    """Get all conversations for the current user's system.
-    
+def get_guided_sessions():
+    """Get all guided sessions for the current user.
+
     Query params:
-        system_id: System ID to filter by
-        part_id: Optional part ID to filter by
-        
+        system_id: (Optional) Filter by a specific system ID owned by the user.
+        status: (Optional) Filter by status (e.g., 'active', 'archived')
+
     Returns:
-        JSON response with conversations data.
+        JSON response with a list of guided sessions.
     """
+    if not MODELS_AVAILABLE:
+        return jsonify({"error": "Server configuration error: Models not loaded"}), 500
+
+    user_id_for_log = "unknown"
     try:
-        # Get query parameters
-        system_id = request.args.get('system_id')
-        part_id = request.args.get('part_id')
+        # Safely get user_id from g.current_user which should be set by @auth_required
+        current_user_data = getattr(g, 'current_user', None)
+        if not current_user_data or 'id' not in current_user_data:
+            logger.error("User ID not found in g.current_user within get_guided_sessions")
+            return jsonify({"error": "Authentication context error"}), 500
+            
+        user_id = current_user_data['id']
+        user_id_for_log = str(user_id) # Store safely for logging
         
-        if not system_id:
-            return jsonify({"error": "system_id query parameter is required"}), 400
-        
-        # Build filter dictionary
-        filter_dict = {'system_id': system_id}
-        if part_id:
-            filter_dict['part_id'] = part_id
-        
+        system_id_filter = request.args.get('system_id')
+        status_filter = request.args.get('status')
+
+        # Base filter: ensure user owns the session
+        # Note: RLS policies should enforce this at the DB level, but adding here for clarity/safety
+        filter_dict = {'user_id': user_id}
+
+        if system_id_filter:
+            # Optional: Verify user owns this system_id first
+            filter_dict['system_id'] = system_id_filter
+        if status_filter:
+            filter_dict['status'] = status_filter
+
         # Use the database adapter
-        conversations = current_app.db_adapter.get_all(CONVERSATION_TABLE, PartConversation, filter_dict)
-        
-        return jsonify(conversations)
-    except Exception as e:
-        logger.error(f"Error fetching conversations: {str(e)}")
-        return jsonify({"error": "An error occurred while fetching conversations"}), 500
+        sessions = current_app.db_adapter.get_all(GUIDED_SESSION_TABLE, GuidedSession, filter_dict)
 
-@conversations_bp.route('/conversations/<conversation_id>', methods=['GET'])
-@auth_required
-def get_conversation(conversation_id):
-    """Get a conversation by ID with its messages.
-    
-    Args:
-        conversation_id: Conversation ID
-        
-    Returns:
-        JSON response with conversation and messages data.
-    """
-    try:
-        # Get conversation
-        conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
-        if not conversation:
-            return jsonify({"error": "Conversation not found"}), 404
-        
-        # Get messages for the conversation
-        filter_dict = {'conversation_id': conversation_id}
-        messages = current_app.db_adapter.get_all(CONVERSATION_MESSAGE_TABLE, ConversationMessage, filter_dict)
-        
-        # Sort messages by creation time
-        messages.sort(key=lambda x: x.get('timestamp', ''))
-        
-        # Get part information
-        part_id = conversation.get('part_id')
-        part = None
-        if part_id:
-            part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
-        
-        response = {
-            "conversation": conversation,
-            "messages": messages,
-            "part": part
-        }
-        
-        return jsonify(response)
-    except Exception as e:
-        logger.error(f"Error fetching conversation: {str(e)}")
-        return jsonify({"error": "An error occurred while fetching the conversation"}), 500
+        return jsonify({"sessions": sessions})
 
-@conversations_bp.route('/conversations', methods=['POST'])
+    except Exception as e:
+        # Use the safely stored user_id_for_log
+        logger.error(f"Error fetching guided sessions for user {user_id_for_log}: {str(e)}", exc_info=True)
+        # Also log g.current_user state for debugging
+        logger.debug(f"g.current_user at time of error: {getattr(g, 'current_user', 'Not set')}")
+        return jsonify({"error": "An error occurred while fetching guided sessions"}), 500
+
+@guided_sessions_bp.route('/guided-sessions', methods=['POST'])
 @auth_required
-def create_conversation():
-    """Create a new conversation.
-    
-    Returns:
-        JSON response with created conversation data.
-    """
+def create_guided_session():
+    """Create a new guided IFS session."""
+    if not MODELS_AVAILABLE:
+        return jsonify({"error": "Server configuration error: Models not loaded"}), 500
+
+    user_id_for_log = "unknown"
     try:
+        # Safely get user_id from g.current_user
+        current_user_data = getattr(g, 'current_user', None)
+        if not current_user_data or 'id' not in current_user_data:
+            logger.error("User ID not found in g.current_user within create_guided_session")
+            return jsonify({"error": "Authentication context error"}), 500
+        user_id = current_user_data['id']
+        user_id_for_log = str(user_id)
+        
         data = request.json
-        
+
         # Validate input
-        ConversationSchema().load(data)
-        
-        # Validate part exists
-        part_id = data.get('part_id')
-        part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
-        if not part:
-            return jsonify({"error": "Part not found"}), 404
-        
-        # Extract system_id from part
-        system_id = part.get('system_id')
-        
-        # Create conversation
-        conversation_data = {
-            'title': data.get('title'),
-            'part_id': part_id,
+        try:
+            validated_data = GuidedSessionSchema().load(data)
+        except ValidationError as e:
+            return jsonify({"error": "Validation failed", "details": e.messages}), 400
+
+        system_id = validated_data['system_id']
+
+        # Verify user owns the target system (important check)
+        system = current_app.db_adapter.get_by_id(SYSTEM_TABLE, IFSSystem, str(system_id))
+        if not system or str(system.get('user_id')) != str(user_id):
+            # Use the validated user_id for comparison
+            logger.warning(f"System access denied or not found. User: {user_id}, System: {system_id}")
+            return jsonify({"error": "System not found or access denied"}), 403
+
+        # Prepare session data
+        session_data = {
+            'user_id': user_id,
             'system_id': system_id,
+            'title': validated_data.get('title') or f"IFS Session - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+            'current_focus_part_id': validated_data.get('initial_focus_part_id')
         }
-        
-        conversation = current_app.db_adapter.create(CONVERSATION_TABLE, PartConversation, conversation_data)
-        
-        if not conversation:
-            return jsonify({"error": "Failed to create conversation"}), 500
-        
-        return jsonify(conversation), 201
-    except ValidationError as e:
-        return jsonify({"error": "Validation failed", "details": e.messages}), 400
-    except Exception as e:
-        logger.error(f"Error creating conversation: {str(e)}")
-        return jsonify({"error": "An error occurred while creating the conversation"}), 500
 
-@conversations_bp.route('/conversations/<conversation_id>/messages', methods=['POST'])
+        # Create session using adapter
+        new_session = current_app.db_adapter.create(GUIDED_SESSION_TABLE, GuidedSession, session_data)
+
+        if not new_session:
+            return jsonify({"error": "Failed to create guided session"}), 500
+
+        # Optional: Add an initial greeting message from the guide
+        if LLM_AVAILABLE:
+            try:
+                initial_greeting = "Welcome! I\'m here to help guide your IFS exploration. What\'s present for you right now, or which part would you like to connect with?"
+                initial_message_data = {
+                    'session_id': new_session['id'],
+                    'role': 'guide',
+                    'content': initial_greeting
+                }
+                if EMBEDDINGS_AVAILABLE:
+                    try:
+                        embedding = embedding_manager.generate_embedding(initial_greeting)
+                        if embedding:
+                            initial_message_data['embedding'] = embedding
+                    except Exception as emb_err:
+                        logger.error(f"Error generating embedding for initial guide message: {emb_err}")
+
+                current_app.db_adapter.create(SESSION_MESSAGE_TABLE, SessionMessage, initial_message_data)
+            except Exception as msg_err:
+                logger.error(f"Failed to add initial guide message to session {new_session['id']}: {msg_err}")
+                # Continue even if initial message fails
+
+        return jsonify({"session": new_session}), 201
+
+    except Exception as e:
+        # Use the safely stored user_id_for_log
+        logger.error(f"Error creating guided session for user {user_id_for_log}: {str(e)}", exc_info=True)
+        logger.debug(f"g.current_user at time of error: {getattr(g, 'current_user', 'Not set')}")
+        return jsonify({"error": "An error occurred while creating the guided session"}), 500
+
+@guided_sessions_bp.route('/guided-sessions/<session_id>', methods=['GET'])
 @auth_required
-def add_message(conversation_id):
-    """Add a message to a conversation.
-    
-    Args:
-        conversation_id: Conversation ID
-        
-    Returns:
-        JSON response with created message and optional AI response.
-    """
+def get_guided_session(session_id):
+    """Get a specific guided session and its messages."""
+    if not MODELS_AVAILABLE:
+        return jsonify({"error": "Server configuration error: Models not loaded"}), 500
+
+    user_id_for_log = "unknown"
     try:
-        data = request.json
-        
-        # Validate input
-        MessageSchema().load(data)
-        
-        # Validate conversation exists
-        conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
-        if not conversation:
-            return jsonify({"error": "Conversation not found"}), 404
-        
-        content = data.get('content')
-        
-        # Create user message
-        user_message_data = {
-            'conversation_id': conversation_id,
-            'role': 'user',
-            'content': content
+        # Safely get user_id from g.current_user
+        current_user_data = getattr(g, 'current_user', None)
+        if not current_user_data or 'id' not in current_user_data:
+            logger.error("User ID not found in g.current_user within get_guided_session")
+            return jsonify({"error": "Authentication context error"}), 500
+        user_id = current_user_data['id']
+        user_id_for_log = str(user_id)
+
+        # Get session (RLS should prevent unauthorized access, but check user_id for defense-in-depth)
+        session = current_app.db_adapter.get_by_id(GUIDED_SESSION_TABLE, GuidedSession, session_id)
+        if not session or str(session.get('user_id')) != str(user_id):
+             logger.warning(f"Attempt to access session {session_id} denied for user {user_id_for_log}")
+             return jsonify({"error": "Guided session not found or access denied"}), 404
+
+        # Get messages for the session
+        filter_dict = {'session_id': session_id}
+        messages = current_app.db_adapter.get_all(SESSION_MESSAGE_TABLE, SessionMessage, filter_dict)
+
+        # Sort messages by timestamp (should be handled by model relationship order_by, but explicit sort is safer)
+        messages.sort(key=lambda x: x.get('timestamp', ''))
+
+        # Get related system and current focus part details
+        system = current_app.db_adapter.get_by_id(SYSTEM_TABLE, IFSSystem, str(session.get('system_id')))
+        focus_part = None
+        if session.get('current_focus_part_id'):
+            focus_part = current_app.db_adapter.get_by_id(PART_TABLE, Part, str(session.get('current_focus_part_id')))
+
+        response = {
+            "session": session,
+            "messages": messages,
+            "system": system, # Include system details
+            "currentFocusPart": focus_part # Include details of the focused part
         }
-        
-        # Generate embedding if available
+
+        return jsonify(response)
+
+    except Exception as e:
+        # Use the safely stored user_id_for_log
+        logger.error(f"Error fetching guided session {session_id} for user {user_id_for_log}: {str(e)}", exc_info=True)
+        logger.debug(f"g.current_user at time of error: {getattr(g, 'current_user', 'Not set')}")
+        return jsonify({"error": "An error occurred while fetching the guided session"}), 500
+
+@guided_sessions_bp.route('/guided-sessions/<session_id>/messages', methods=['POST'])
+@auth_required
+def add_session_message(session_id):
+    """Add a user message to a guided session and get the AI guide's response."""
+    if not MODELS_AVAILABLE:
+        return jsonify({"error": "Server configuration error: Models not loaded"}), 500
+
+    user_id_for_log = "unknown"
+    try:
+        # Safely get user_id from g.current_user
+        current_user_data = getattr(g, 'current_user', None)
+        if not current_user_data or 'id' not in current_user_data:
+            logger.error("User ID not found in g.current_user within add_session_message")
+            return jsonify({"error": "Authentication context error"}), 500
+        user_id = current_user_data['id']
+        user_id_for_log = str(user_id)
+
+        data = request.json
+
+        # Validate input
+        try:
+            validated_data = SessionMessageSchema().load(data)
+        except ValidationError as e:
+            return jsonify({"error": "Validation failed", "details": e.messages}), 400
+
+        # Get session and verify ownership
+        session = current_app.db_adapter.get_by_id(GUIDED_SESSION_TABLE, GuidedSession, session_id)
+        if not session or str(session.get('user_id')) != str(user_id):
+            logger.warning(f"Attempt to add message to session {session_id} denied for user {user_id_for_log}")
+            return jsonify({"error": "Guided session not found or access denied"}), 404
+
+        # --- Create and store user message ---
+        user_content = validated_data['content']
+        user_message_data = {
+            'session_id': session_id,
+            'role': 'user',
+            'content': user_content
+        }
+
         if EMBEDDINGS_AVAILABLE:
             try:
-                embedding = embedding_manager.generate_embedding(content)
+                embedding = embedding_manager.generate_embedding(user_content)
                 if embedding:
                     user_message_data['embedding'] = embedding
             except Exception as e:
-                logger.error(f"Error generating embedding: {str(e)}")
-        
-        # Create message
-        user_message = current_app.db_adapter.create(CONVERSATION_MESSAGE_TABLE, ConversationMessage, user_message_data)
-        
+                logger.error(f"Error generating embedding for user message: {str(e)}")
+
+        user_message = current_app.db_adapter.create(SESSION_MESSAGE_TABLE, SessionMessage, user_message_data)
         if not user_message:
-            return jsonify({"error": "Failed to create message"}), 500
-        
-        # If LLM service is available and auto_respond is requested, generate AI response
-        ai_message = None
-        auto_respond = data.get('auto_respond', True)
-        
-        if LLM_AVAILABLE and auto_respond and conversation.get('part_id'):
+             # If message creation fails, we probably shouldn't proceed to LLM call
+             return jsonify({"error": "Failed to save user message"}), 500
+
+        # --- Generate and store guide response --- (Only if LLM is available)
+        guide_message = None
+        if LLM_AVAILABLE:
             try:
-                # Get part
-                part_id = conversation.get('part_id')
-                part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
-                
-                if not part:
-                    logger.error(f"Part {part_id} not found for conversation {conversation_id}")
+                # Fetch necessary context for the guide prompt
+                # 1. Get current message history (including the one just added)
+                history_filter = {'session_id': session_id}
+                message_history = current_app.db_adapter.get_all(SESSION_MESSAGE_TABLE, SessionMessage, history_filter)
+                message_history.sort(key=lambda x: x.get('timestamp', '')) # Ensure order
+
+                # 2. Get all parts for the system
+                system_id = session.get('system_id')
+                parts_filter = {'system_id': str(system_id)}
+                system_parts = current_app.db_adapter.get_all(PART_TABLE, Part, parts_filter)
+
+                # 3. Get current focus part details (if any)
+                current_focus_part = None
+                focus_part_id = session.get('current_focus_part_id')
+                if focus_part_id:
+                    current_focus_part = current_app.db_adapter.get_by_id(PART_TABLE, Part, str(focus_part_id))
+
+                # Generate guide response using the refactored LLM service
+                guide_response_content = llm_service.generate_guide_response(
+                    session_history=message_history,
+                    system_parts=system_parts,
+                    current_focus_part=current_focus_part
+                )
+
+                # Check for errors from LLM service
+                if guide_response_content.startswith("Error:"):
+                    logger.error(f"LLM service failed for session {session_id}: {guide_response_content}")
+                    # Return user message but include the error
                     return jsonify({
-                        "message": user_message,
-                        "error": "Part not found, cannot generate AI response"
-                    }), 207
-                
-                # Get conversation history
-                filter_dict = {'conversation_id': conversation_id}
-                messages = current_app.db_adapter.get_all(CONVERSATION_MESSAGE_TABLE, ConversationMessage, filter_dict)
-                messages.sort(key=lambda x: x.get('timestamp', ''))
-                
-                # Generate AI response - use a generic method name if specific one doesn't exist
-                try:
-                    ai_response_content = llm_service.chat_with_part(part, messages, content)
-                except AttributeError:
-                    # Fallback to a more generic method if available
-                    logger.warning("chat_with_part not found, trying generate_response")
-                    
-                    # Create a simple prompt if we need to fall back
-                    part_name = part.get('name', 'Part')
-                    fallback_prompt = f"You are {part_name}. User says: {content}"
-                    ai_response_content = llm_service.generate_response(fallback_prompt)
-                
-                # Create AI message
-                ai_message_data = {
-                    'conversation_id': conversation_id,
-                    'role': 'assistant',
-                    'content': ai_response_content
-                }
-                
-                # Generate embedding if available
-                if EMBEDDINGS_AVAILABLE:
-                    try:
-                        embedding = embedding_manager.generate_embedding(ai_response_content)
-                        if embedding:
-                            ai_message_data['embedding'] = embedding
-                    except Exception as e:
-                        logger.error(f"Error generating embedding for AI response: {str(e)}")
-                
-                # Create and store AI message
-                ai_message = current_app.db_adapter.create(CONVERSATION_MESSAGE_TABLE, ConversationMessage, ai_message_data)
-                
-                # Check if we should generate a summary for this conversation
-                # We'll only generate summaries automatically for conversations that don't have one yet
-                if not conversation.get('summary'):
-                    try:
-                        # Automatic summary generation now happens when the user navigates away
-                        # We'll just log that this message was added without a summary
-                        logger.info(f"Message added to conversation {conversation_id} without summary - will be generated on navigation")
-                    except Exception as e:
-                        logger.error(f"Error in automatic summary check: {str(e)}")
-                        # Continue without failing if summary generation fails
-            except Exception as e:
-                logger.error(f"Error generating AI response: {str(e)}")
+                        "user_message": user_message,
+                        "error": f"AI guide failed: {guide_response_content}"
+                    }), 207 # Multi-Status
+                else:
+                    # Store the guide's response
+                    guide_message_data = {
+                        'session_id': session_id,
+                        'role': 'guide',
+                        'content': guide_response_content
+                    }
+                    if EMBEDDINGS_AVAILABLE:
+                        try:
+                            embedding = embedding_manager.generate_embedding(guide_response_content)
+                            if embedding:
+                                guide_message_data['embedding'] = embedding
+                        except Exception as e:
+                            logger.error(f"Error generating embedding for guide response: {str(e)}")
+
+                    guide_message = current_app.db_adapter.create(SESSION_MESSAGE_TABLE, SessionMessage, guide_message_data)
+                    if not guide_message:
+                        logger.error(f"Failed to save guide message for session {session_id}")
+                        # Proceed but log error, return user message + AI content without saved AI message ID
+                        return jsonify({
+                            "user_message": user_message,
+                            "guide_response_content": guide_response_content, # Send content even if save failed
+                            "error": "Failed to save guide response message"
+                        }), 207
+
+            except Exception as llm_err:
+                logger.error(f"Error during AI guide response generation for session {session_id}: {llm_err}", exc_info=True)
+                # Return user message with error about AI failure
                 return jsonify({
-                    "message": user_message,
-                    "error": f"Failed to generate AI response: {str(e)}"
+                    "user_message": user_message,
+                    "error": f"Failed to generate AI guide response: {str(llm_err)}"
                 }), 207
-        
-        # Return both messages
-        result = {"message": user_message}
-        if ai_message:
-            result["ai_response"] = ai_message
-            
-        return jsonify(result)
-    except ValidationError as e:
-        return jsonify({"error": "Validation failed", "details": e.messages}), 400
+        else:
+             # LLM not available, return only the user message
+             logger.warning(f"LLM service unavailable, only user message saved for session {session_id}")
+
+        # --- Prepare and return response ---
+        response = {"user_message": user_message}
+        if guide_message:
+            response["guide_response"] = guide_message
+
+        return jsonify(response)
+
     except Exception as e:
-        logger.error(f"Error adding message: {str(e)}")
+        # Use the safely stored user_id_for_log
+        logger.error(f"Error adding message to session {session_id} for user {user_id_for_log}: {str(e)}", exc_info=True)
+        logger.debug(f"g.current_user at time of error: {getattr(g, 'current_user', 'Not set')}")
         return jsonify({"error": "An error occurred while adding the message"}), 500
 
-@conversations_bp.route('/conversations/<conversation_id>', methods=['DELETE'])
+@guided_sessions_bp.route('/guided-sessions/<session_id>', methods=['PUT', 'PATCH'])
 @auth_required
-def delete_conversation(conversation_id):
-    """Delete a conversation.
-    
-    Args:
-        conversation_id: Conversation ID
-        
-    Returns:
-        JSON response with success message.
-    """
-    try:
-        # Use the database adapter
-        success = current_app.db_adapter.delete(CONVERSATION_TABLE, PartConversation, conversation_id)
-        
-        if not success:
-            return jsonify({"error": "Conversation not found"}), 404
-            
-        return jsonify({"message": "Conversation deleted successfully"})
-    except Exception as e:
-        logger.error(f"Error deleting conversation: {str(e)}")
-        return jsonify({"error": "An error occurred while deleting the conversation"}), 500
+def update_guided_session(session_id):
+    """Update details of a guided session (title, summary, status, focus part)."""
+    if not MODELS_AVAILABLE:
+        return jsonify({"error": "Server configuration error: Models not loaded"}), 500
 
-@conversations_bp.route('/conversations/search', methods=['GET'])
-@auth_required
-def search_conversations():
-    """Search conversations by text or semantic similarity.
-    
-    Query params:
-        query: Search query text (required)
-        part_id: Part ID (required)
-        search_type: Type of search - 'text' or 'semantic' (required)
-        limit: Maximum number of results (optional, default 10)
-        
-    Returns:
-        JSON response with search results.
-    """
+    user_id_for_log = "unknown"
     try:
-        # Get query parameters
-        query = request.args.get('query')
-        part_id = request.args.get('part_id')
-        search_type = request.args.get('search_type', 'text')
-        limit = int(request.args.get('limit', 10))
-        
-        if not query:
-            return jsonify({"error": "Search query is required"}), 400
-            
-        if not part_id:
-            return jsonify({"error": "part_id is required"}), 400
-            
-        if search_type not in ['text', 'semantic']:
-            return jsonify({"error": "search_type must be 'text' or 'semantic'"}), 400
-        
-        # Get conversations for this part
-        filter_dict = {'part_id': part_id}
-        conversations = current_app.db_adapter.get_all(CONVERSATION_TABLE, PartConversation, filter_dict)
-        
-        # For semantic search
-        if search_type == 'semantic' and EMBEDDINGS_AVAILABLE:
-            # Generate embedding for query
-            query_embedding = embedding_manager.generate_embedding(query)
-            
-            if not query_embedding:
-                return jsonify({"error": "Failed to generate embedding for query"}), 500
-            
-            # Perform vector similarity search for messages
-            results = current_app.db_adapter.query_vector_similarity(
-                CONVERSATION_MESSAGE_TABLE,
-                ConversationMessage,
-                'embedding',
-                query_embedding,
-                limit,
-                filter_dict={'part_id': part_id}  # Add filter for part_id
-            )
-            
-            # Get unique conversation IDs from results
-            conversation_ids = set(result.get('conversation_id') for result in results if result.get('conversation_id'))
-            
-            # Filter conversations to only those with matching messages
-            filtered_conversations = [conv for conv in conversations if conv.get('id') in conversation_ids]
-            
-        # For text search (simple substring matching)
-        else:
-            # Simple text search implementation
-            query_lower = query.lower()
-            filtered_conversations = []
-            
-            # Get all messages for conversations with this part_id
-            for conversation in conversations:
-                conv_id = conversation.get('id')
-                if not conv_id:
-                    continue
-                
-                # Get messages for this conversation
-                filter_dict = {'conversation_id': conv_id}
-                messages = current_app.db_adapter.get_all(CONVERSATION_MESSAGE_TABLE, ConversationMessage, filter_dict)
-                
-                # Check if any message content contains the query text
-                for message in messages:
-                    content = message.get('content', '')
-                    if content and query_lower in content.lower():
-                        filtered_conversations.append(conversation)
-                        break
-        
-        return jsonify({"conversations": filtered_conversations})
-    except Exception as e:
-        logger.error(f"Error searching conversations: {str(e)}")
-        return jsonify({"error": "An error occurred while searching conversations"}), 500
+        # Safely get user_id from g.current_user
+        current_user_data = getattr(g, 'current_user', None)
+        if not current_user_data or 'id' not in current_user_data:
+            logger.error("User ID not found in g.current_user within update_guided_session")
+            return jsonify({"error": "Authentication context error"}), 500
+        user_id = current_user_data['id']
+        user_id_for_log = str(user_id)
 
-@conversations_bp.route('/parts/<part_id>/personality-vectors', methods=['POST'])
-@auth_required
-def generate_personality_vectors(part_id):
-    """Generate personality vector embeddings for a part.
-    
-    Args:
-        part_id: Part ID
-        
-    Returns:
-        JSON response with created personality vectors.
-    """
-    if not EMBEDDINGS_AVAILABLE:
-        return jsonify({"error": "Embedding service not available"}), 503
-    
-    try:
-        # Get part
-        part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
-        if not part:
-            return jsonify({"error": "Part not found"}), 404
-        
-        # Get personality attributes from request
         data = request.json
-        attributes = data.get('attributes', {})
-        
-        if not attributes or not isinstance(attributes, dict):
-            return jsonify({"error": "Attributes dictionary is required"}), 400
-        
-        # Generate personality vectors
-        created_vectors = []
-        
-        for attribute, description in attributes.items():
-            if not description or not isinstance(description, str):
-                continue
-            
-            # Generate embedding
-            embedding = embedding_manager.generate_embedding(description)
-            
-            if not embedding:
-                logger.error(f"Failed to generate embedding for {attribute}")
-                continue
-            
-            # Create or update personality vector
-            vector_data = {
-                'part_id': part_id,
-                'attribute': attribute,
-                'description': description,
-                'embedding': embedding
-            }
-            
-            # Check if vector already exists
-            filter_dict = {'part_id': part_id, 'attribute': attribute}
-            existing_vectors = current_app.db_adapter.get_all(PERSONALITY_VECTOR_TABLE, PartPersonalityVector, filter_dict)
-            
-            if existing_vectors:
-                # Update existing vector
-                existing_id = existing_vectors[0].get('id')
-                vector = current_app.db_adapter.update(PERSONALITY_VECTOR_TABLE, PartPersonalityVector, existing_id, vector_data)
-            else:
-                # Create new vector
-                vector = current_app.db_adapter.create(PERSONALITY_VECTOR_TABLE, PartPersonalityVector, vector_data)
-            
-            if vector:
-                created_vectors.append(vector)
-        
-        return jsonify({
-            "message": f"Generated {len(created_vectors)} personality vectors",
-            "vectors": created_vectors
-        })
-    except Exception as e:
-        logger.error(f"Error generating personality vectors: {str(e)}")
-        return jsonify({"error": "An error occurred while generating personality vectors"}), 500
 
-@conversations_bp.route('/conversations/similar-messages', methods=['POST'])
-@auth_required
-def find_similar_messages():
-    """Find messages similar to the provided text.
-    
-    Returns:
-        JSON response with similar messages.
-    """
-    if not EMBEDDINGS_AVAILABLE:
-        return jsonify({"error": "Embedding service not available"}), 503
-    
-    try:
-        data = request.json
-        
-        # Get query text
-        query_text = data.get('text')
-        limit = int(data.get('limit', 5))
-        
-        if not query_text or not isinstance(query_text, str):
-            return jsonify({"error": "Query text is required"}), 400
-        
-        # Generate embedding for query
-        query_embedding = embedding_manager.generate_embedding(query_text)
-        
-        if not query_embedding:
-            return jsonify({"error": "Failed to generate embedding for query"}), 500
-        
-        # Perform vector similarity search
-        results = current_app.db_adapter.query_vector_similarity(
-            CONVERSATION_MESSAGE_TABLE,
-            ConversationMessage,
-            'embedding',
-            query_embedding,
-            limit
+        # Validate input
+        try:
+            # Use partial=True for updates
+            validated_data = UpdateSessionSchema().load(data, partial=True)
+        except ValidationError as e:
+            return jsonify({"error": "Validation failed", "details": e.messages}), 400
+
+        # Get session and verify ownership
+        session = current_app.db_adapter.get_by_id(GUIDED_SESSION_TABLE, GuidedSession, session_id)
+        if not session or str(session.get('user_id')) != str(user_id):
+            logger.warning(f"Attempt to update session {session_id} denied for user {user_id_for_log}")
+            return jsonify({"error": "Guided session not found or access denied"}), 404
+
+        # Perform update
+        updated_session = current_app.db_adapter.update(
+            GUIDED_SESSION_TABLE, GuidedSession, session_id, validated_data
         )
-        
-        # Enrich results with conversation and part information
-        enriched_results = []
-        
-        for result in results:
-            conversation_id = result.get('conversation_id')
-            
-            # Get conversation
-            conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
-            
-            if not conversation:
-                continue
-            
-            # Get part if available
-            part = None
-            part_id = conversation.get('part_id')
-            
-            if part_id:
-                part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
-            
-            # Add to enriched results
-            enriched_results.append({
-                "message": result,
-                "conversation": conversation,
-                "part": part,
-                "similarity_score": result.get('distance')
-            })
-        
-        return jsonify(enriched_results)
-    except Exception as e:
-        logger.error(f"Error finding similar messages: {str(e)}")
-        return jsonify({"error": "An error occurred while finding similar messages"}), 500
 
-@conversations_bp.route('/conversations/<conversation_id>/summary', methods=['POST'])
+        if not updated_session:
+            return jsonify({"error": "Failed to update guided session"}), 500
+
+        return jsonify({"session": updated_session})
+
+    except Exception as e:
+        # Use the safely stored user_id_for_log
+        logger.error(f"Error updating guided session {session_id} for user {user_id_for_log}: {str(e)}", exc_info=True)
+        logger.debug(f"g.current_user at time of error: {getattr(g, 'current_user', 'Not set')}")
+        return jsonify({"error": "An error occurred while updating the session"}), 500
+
+@guided_sessions_bp.route('/guided-sessions/<session_id>', methods=['DELETE'])
 @auth_required
-def generate_conversation_summary(conversation_id):
-    """Generate or update a summary for a conversation.
-    
-    Args:
-        conversation_id: Conversation ID
-        
-    Returns:
-        JSON response with updated conversation including summary.
-    """
-    try:
-        # Validate conversation exists
-        conversation = current_app.db_adapter.get_by_id(CONVERSATION_TABLE, PartConversation, conversation_id)
-        if not conversation:
-            return jsonify({"error": "Conversation not found"}), 404
-        
-        # Get messages for this conversation
-        filter_dict = {'conversation_id': conversation_id}
-        messages = current_app.db_adapter.get_all(CONVERSATION_MESSAGE_TABLE, ConversationMessage, filter_dict)
-        
-        # Sort messages by timestamp
-        messages.sort(key=lambda x: x.get('timestamp', ''))
-        
-        # Filter valid messages (with content)
-        valid_messages = [msg for msg in messages if msg.get('content')]
-        
-        # Generate a simple summary
-        summary = ""
-        
-        if not valid_messages:
-            # No valid messages, use a default summary
-            summary = "Empty conversation"
-        elif len(valid_messages) == 1:
-            # Just one message - use first few words
-            content = valid_messages[0].get('content', '')
-            words = content.split()
-            summary = ' '.join(words[:5]) + ('...' if len(words) > 5 else '')
-        else:
-            # Multiple messages - try using LLM if available
-            try:
-                if LLM_AVAILABLE:
-                    # Get part information for context
-                    part_id = conversation.get('part_id')
-                    part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
-                    part_name = part.get('name', 'Part') if part else 'Part'
-                    
-                    # Create a simple prompt with just the first and last messages for brevity
-                    first_msg = valid_messages[0]
-                    last_msg = valid_messages[-1]
-                    
-                    conversation_text = f"{first_msg.get('role', 'unknown')}: {first_msg.get('content', '')}\n"
-                    if len(valid_messages) > 2:
-                        conversation_text += "... [middle messages omitted] ...\n"
-                    conversation_text += f"{last_msg.get('role', 'unknown')}: {last_msg.get('content', '')}"
-                    
-                    summary_prompt = f"""
-                    Briefly summarize what this conversation with {part_name} is about in 5-7 words only:
-                    
-                    {conversation_text}
-                    
-                    Summary (5-7 words only):
-                    """
-                    
-                    # Generate summary with LLM
-                    llm_summary = llm_service.generate_response(summary_prompt)
-                    summary = llm_summary.strip('"\'.\n').strip()
-                    
-                    # Limit length
-                    if len(summary.split()) > 10:  
-                        summary = ' '.join(summary.split()[:7])
-                else:
-                    # No LLM - use first message approach
-                    raise Exception("LLM not available")
-            except Exception as e:
-                logger.warning(f"LLM summary failed, falling back to simple approach: {str(e)}")
-                # Simple approach - use first user message as summary
-                first_user_msg = next((m for m in valid_messages if m.get('role') == 'user'), None) or valid_messages[0]
-                content = first_user_msg.get('content', '')
-                words = content.split()
-                summary = ' '.join(words[:5]) + ('...' if len(words) > 5 else '')
-        
-        # Update the conversation with the summary
-        update_data = {'summary': summary}
-        updated_conversation = current_app.db_adapter.update(CONVERSATION_TABLE, PartConversation, conversation_id, update_data)
-        
-        if not updated_conversation:
-            return jsonify({"error": "Failed to update conversation with summary"}), 500
-            
-        logger.info(f"Generated summary for conversation {conversation_id}: {summary}")
-        return jsonify({"conversation": updated_conversation})
-            
-    except Exception as e:
-        logger.error(f"Error generating conversation summary: {str(e)}")
-        return jsonify({"error": "An error occurred while generating the summary"}), 500
+def delete_guided_session(session_id):
+    """Delete a guided session and its messages."""
+    if not MODELS_AVAILABLE:
+        return jsonify({"error": "Server configuration error: Models not loaded"}), 500
 
-@conversations_bp.route('/parts/<part_id>/conversations', methods=['GET', 'OPTIONS'])
-@auth_required
-def get_conversations_by_part(part_id):
-    """Get all conversations for a specific part.
-    
-    Args:
-        part_id: Part ID
-        
-    Returns:
-        JSON response with conversations data.
-    """
-    logger.info(f"Received request for conversations of part: {part_id}")
-    
-    # Handle OPTIONS request for CORS preflight
-    if request.method == 'OPTIONS':
-        logger.info(f"Handling OPTIONS request for /parts/{part_id}/conversations")
-        # Set CORS headers for OPTIONS response
-        response = current_app.make_response(('', 204))
-        response.headers.extend({
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-        })
-        return response
-        
+    user_id_for_log = "unknown"
     try:
-        # Log authentication info
-        logger.info(f"Auth info: {g.user if hasattr(g, 'user') else 'No user in context'}")
-        
-        # Validate part exists
-        logger.info(f"Fetching part with ID: {part_id}")
-        part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
-        if not part:
-            logger.error(f"Part not found: {part_id}")
-            return jsonify({"error": "Part not found"}), 404
-        
-        logger.info(f"Found part: {part.get('name', 'unknown')}")
-            
-        # Get system_id from part
-        system_id = part.get('system_id')
-        logger.info(f"System ID from part: {system_id}")
-        
-        # Build filter dictionary
-        filter_dict = {'part_id': part_id}
-        
-        # Use the database adapter
-        logger.info(f"Fetching conversations with filter: {filter_dict}")
-        conversations = current_app.db_adapter.get_all(CONVERSATION_TABLE, PartConversation, filter_dict)
-        logger.info(f"Found {len(conversations)} conversations")
-        
-        # Enrich conversations with message counts to help frontend make better decisions
-        for conversation in conversations:
-            try:
-                # Get message count for each conversation
-                msg_filter = {'conversation_id': conversation.get('id')}
-                message_count = current_app.db_adapter.count(CONVERSATION_MESSAGE_TABLE, ConversationMessage, msg_filter)
-                conversation['message_count'] = message_count
-            except Exception as e:
-                logger.warning(f"Could not get message count for conversation {conversation.get('id')}: {str(e)}")
-                # Don't fail if we can't get the count, just continue
-        
-        result = {"conversations": conversations}
-        logger.info(f"Returning {len(conversations)} conversations")
-        return jsonify(result)
-    except Exception as e:
-        logger.error(f"Error fetching conversations for part: {str(e)}")
-        return jsonify({"error": "An error occurred while fetching conversations"}), 500
+        # Safely get user_id from g.current_user
+        current_user_data = getattr(g, 'current_user', None)
+        if not current_user_data or 'id' not in current_user_data:
+            logger.error("User ID not found in g.current_user within delete_guided_session")
+            return jsonify({"error": "Authentication context error"}), 500
+        user_id = current_user_data['id']
+        user_id_for_log = str(user_id)
 
-@conversations_bp.route('/parts/<part_id>/conversations', methods=['POST', 'OPTIONS'])
-@auth_required
-def create_conversation_for_part(part_id):
-    """Create a new conversation for a specific part.
-    
-    Args:
-        part_id: Part ID
-        
-    Returns:
-        JSON response with created conversation data.
-    """
-    # Handle OPTIONS request for CORS preflight
-    if request.method == 'OPTIONS':
-        logger.info(f"Handling OPTIONS request for POST /parts/{part_id}/conversations")
-        # Set CORS headers for OPTIONS response
-        response = current_app.make_response(('', 204))
-        response.headers.extend({
-            'Access-Control-Allow-Origin': '*',
-            'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-            'Access-Control-Allow-Headers': 'Content-Type, Authorization'
-        })
-        return response
-        
-    try:
-        data = request.json
-        
-        # Validate part exists
-        part = current_app.db_adapter.get_by_id(PART_TABLE, Part, part_id)
-        if not part:
-            return jsonify({"error": "Part not found"}), 404
-        
-        # Extract system_id from part
-        system_id = part.get('system_id')
-        
-        # Extract title from request or generate one
-        title = data.get('title')
-        if not title:
-            title = f"Conversation with {part.get('name', 'Part')} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
-        
-        # Create conversation
-        conversation_data = {
-            'title': title,
-            'part_id': part_id,
-            'system_id': system_id,
-        }
-        
-        # Add timestamp if provided
-        if 'timestamp' in data:
-            conversation_data['timestamp'] = data.get('timestamp')
-        
-        conversation = current_app.db_adapter.create(CONVERSATION_TABLE, PartConversation, conversation_data)
-        
-        if not conversation:
-            return jsonify({"error": "Failed to create conversation"}), 500
-        
-        return jsonify({"conversation": conversation}), 201
-    except Exception as e:
-        logger.error(f"Error creating conversation for part: {str(e)}")
-        return jsonify({"error": "An error occurred while creating the conversation"}), 500
+        # Get session to verify ownership before deleting
+        # RLS handles DB security, but this check provides a clearer API error
+        session = current_app.db_adapter.get_by_id(GUIDED_SESSION_TABLE, GuidedSession, session_id)
+        if not session or str(session.get('user_id')) != str(user_id):
+            logger.warning(f"Attempt to delete session {session_id} denied for user {user_id_for_log}")
+            return jsonify({"error": "Guided session not found or access denied"}), 404
 
-@conversations_bp.route('/conversations/test', methods=['GET'])
-def test_conversation_route():
-    """Test endpoint to verify the conversations blueprint is working."""
+        # Perform delete (CASCADE should handle messages)
+        success = current_app.db_adapter.delete(GUIDED_SESSION_TABLE, GuidedSession, session_id)
+
+        if not success:
+            # This might happen if the session was deleted between the check and the delete call
+            return jsonify({"error": "Failed to delete guided session or session already deleted"}), 500
+
+        return jsonify({"message": "Guided session deleted successfully"})
+
+    except Exception as e:
+        # Use the safely stored user_id_for_log
+        logger.error(f"Error deleting guided session {session_id} for user {user_id_for_log}: {str(e)}", exc_info=True)
+        logger.debug(f"g.current_user at time of error: {getattr(g, 'current_user', 'Not set')}")
+        return jsonify({"error": "An error occurred while deleting the session"}), 500
+
+# === Test Endpoint ===
+@guided_sessions_bp.route('/guided-sessions/test', methods=['GET'])
+def test_guided_sessions_route():
+    """Test endpoint to verify the guided sessions blueprint is working."""
     return jsonify({
         "status": "ok",
-        "message": "Conversations API is accessible",
-        "blueprint": "conversations_bp"
+        "message": "Guided Sessions API is accessible",
+        "blueprint": guided_sessions_bp.name
     }) 
