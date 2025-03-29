@@ -195,10 +195,17 @@ class DBAdapter:
         """
         try:
             if self.using_supabase:
-                # Pre-process data
+                # Pre-process data to handle non-JSON serializable types like UUID and list (for vectors)
                 processed_data = {}
                 for key, value in data.items():
-                    processed_data[key] = value
+                    if isinstance(value, UUID):
+                        processed_data[key] = str(value)
+                    elif isinstance(value, list):
+                        # Convert list (likely embedding vector) to string representation
+                        # Supabase might expect vectors as strings like '[1,2,3]'
+                        processed_data[key] = str(value)
+                    else:
+                        processed_data[key] = value
                 
                 # Get authentication headers
                 headers = self._get_auth_headers()
@@ -224,6 +231,7 @@ class DBAdapter:
                     request_headers['Authorization'] = headers['Authorization']
                 
                 # Make the POST request
+                logger.debug(f"Supabase Create Payload for {table}: {json.dumps(processed_data)[:200]}...") # Log payload
                 response = requests.post(url, json=processed_data, headers=request_headers)
                 
                 if response.status_code >= 200 and response.status_code < 300:
@@ -231,9 +239,14 @@ class DBAdapter:
                     response_data = response.json()
                     if response_data and len(response_data) > 0:
                         return response_data[0]
+                    else:
+                         # Handle case where Prefer: representation returns empty list on success (e.g., 204 No Content)
+                         logger.warning(f"Supabase create for {table} returned success status {response.status_code} but no data.")
+                         # We might not have the ID here, return the processed data as a fallback
+                         return processed_data
                 
                 # Log error details
-                logger.error(f"Supabase REST API error: {response.status_code} - {response.text}")
+                logger.error(f"Supabase REST API error creating record in {table}: {response.status_code} - {response.text}")
                 return None
             else:
                 record = model_class(**data)

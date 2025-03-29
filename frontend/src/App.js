@@ -14,8 +14,8 @@ import {
   NewPartPage, 
   SystemMapPage, 
   PartDetailsPage,
-  ChatPage,
-  ConversationsPage
+  GuidedSessionChatPage,
+  GuidedSessionsPage
 } from './pages';
 import { 
   Navigation, 
@@ -96,14 +96,14 @@ function App() {
                     <PartDetailsPage />
                   </ProtectedIFSRoute>
                 } />
-                <Route path="/chat/:partId" element={
+                <Route path="/session/:sessionId" element={
                   <ProtectedIFSRoute>
-                    <ChatPage />
+                    <GuidedSessionChatPage />
                   </ProtectedIFSRoute>
                 } />
-                <Route path="/conversations/:partId" element={
+                <Route path="/sessions" element={
                   <ProtectedIFSRoute>
-                    <ConversationsPage />
+                    <GuidedSessionsPage />
                   </ProtectedIFSRoute>
                 } />
                 <Route path="/journal" element={

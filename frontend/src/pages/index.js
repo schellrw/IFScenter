@@ -6,5 +6,5 @@ export { default as Register } from './Register';
 export { default as NewPartPage } from './NewPartPage';
 export { default as SystemMapPage } from './SystemMapPage';
 export { default as PartDetailsPage } from './PartDetailsPage';
-export { default as ChatPage } from './ChatPage';
-export { default as ConversationsPage } from './ConversationsPage'; 
+export { default as GuidedSessionChatPage } from './GuidedSessionChatPage';
+export { default as GuidedSessionsPage } from './GuidedSessionsPage'; 
