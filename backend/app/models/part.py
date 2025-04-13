@@ -4,6 +4,8 @@ Part model for IFS parts.
 import datetime
 from uuid import uuid4
 from typing import Dict, Any, List, Optional
+import ast
+import logging
 
 from sqlalchemy import Column, String, Text, DateTime, ForeignKey, func
 from sqlalchemy.sql import func as sql_func
@@ -11,6 +13,8 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
 from . import db
+
+logger = logging.getLogger(__name__)
 
 class Part(db.Model):
     """Model representing an IFS part."""
@@ -83,12 +87,9 @@ class Part(db.Model):
         self.needs = needs or []
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert part to dictionary representation.
+        """Convert part to dictionary representation, ensuring lists are parsed."""
         
-        Returns:
-            Dictionary representation of part.
-        """
-        return {
+        part_data = {
             "id": str(self.id),
             "name": self.name,
             "system_id": str(self.system_id),
@@ -101,6 +102,25 @@ class Part(db.Model):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None
         }
+
+        # Parse list-like fields that might be strings
+        list_fields = ['feelings', 'beliefs', 'triggers', 'needs']
+        for field in list_fields:
+            if field in part_data and isinstance(part_data[field], str):
+                try:
+                    parsed_value = ast.literal_eval(part_data[field])
+                    if isinstance(parsed_value, list):
+                        part_data[field] = parsed_value
+                    else:
+                        logger.warning(f"Parsed field '{field}' for part {part_data['id']} but result was not a list: {parsed_value}. Keeping original string.")
+                except (ValueError, SyntaxError, TypeError) as parse_error:
+                    logger.warning(f"Could not parse string field '{field}' for part {part_data['id']}: {part_data[field]}. Error: {parse_error}. Setting to empty list.")
+                    part_data[field] = []
+            elif field in part_data and part_data[field] is None:
+                # Ensure None values become empty lists for consistency
+                part_data[field] = []
+
+        return part_data
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any], system_id: str) -> 'Part':

@@ -96,6 +96,10 @@ const MiniSystemMap = ({ parts, relationships, height = 200, maxNodes = 10 }) =>
       .append('g')
       .attr('cursor', 'pointer')
       .on('click', (event, d) => {
+        // Log the clicked node data
+        console.log('MiniSystemMap: Node clicked:', d);
+        console.log(`MiniSystemMap: Navigating to /parts/${d.id} with state:`, { from: 'dashboard' });
+
         // Navigate to part detail with source page info
         navigate(`/parts/${d.id}`, { state: { from: 'dashboard' } });
       });
