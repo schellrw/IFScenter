@@ -17,8 +17,13 @@ API_BASE_URL = API_BASE_URL.replace(/["']/g, '');
 API_BASE_URL = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
 
 // Session timeout configuration
+// --- PRODUCTION VALUES --- 
 const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
 const WARNING_BEFORE_TIMEOUT = 60 * 1000; // Show warning 1 minute before logout
+// const INACTIVITY_TIMEOUT = 3 * 60 * 1000; // TEST: 3 minutes inactivity
+// const WARNING_BEFORE_TIMEOUT = 30 * 1000; // TEST: Show warning 30 seconds before calculated expiry
+// Note: Warning timer logic inside the useEffect is based on tokenExpiryTime, 
+// which correctly relates to the 1-hour token, not the inactivity timeout.
 
 // Add debug logging
 console.log(`Using API base URL: ${API_BASE_URL}`);
@@ -38,20 +43,17 @@ export const AuthProvider = ({ children }) => {
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
   const [remainingTime, setRemainingTime] = useState(null);
 
-  // Parse JWT token to get expiration time
+  // Wrap calculateExpiryTime in useCallback
   const calculateExpiryTime = useCallback((token) => {
     try {
-      // JWT token consists of three parts separated by dots
       const payload = JSON.parse(atob(token.split('.')[1]));
       if (payload.exp) {
-        // JWT expiration is in seconds since epoch
         return payload.exp * 1000; // Convert to milliseconds
       }
     } catch (e) {
       console.error('Error parsing token expiration:', e);
     }
-    // Fallback to 1 day from now if can't parse token
-    return Date.now() + 24 * 60 * 60 * 1000;
+    return Date.now() + 24 * 60 * 60 * 1000; // Fallback
   }, []);
 
   // Updated logout function
@@ -95,85 +97,108 @@ export const AuthProvider = ({ children }) => {
       response => response,
       error => {
         if (error.response && error.response.status === 401) {
-          console.error('Received 401 unauthorized error, token might be expired');
-          logout();
+          // Check if it's the refresh token endpoint itself failing
+          if (error.config.url.includes('/api/refresh-token')) {
+            console.error('Refresh token failed (401), logging out.');
+          } else {
+            console.error('Received 401 unauthorized, token might be expired or invalid. Logging out.');
+            // Optional: Here you could attempt ONE refresh before logging out
+            // attemptTokenRefresh().catch(() => logout()); 
+          }
+          logout(); // Logout on 401
         }
         return Promise.reject(error);
       }
     );
     
     return () => {
-      // Clean up interceptor on unmount
       axios.interceptors.response.eject(interceptor);
     };
-  }, [logout]);
+  }, [logout]); // Dependency
 
-  // Inactivity timer and token expiration timer
+  // Inactivity timer and token expiration timer with added logging
   useEffect(() => {
-    if (!token) return;
-    
+    // If no token, do nothing related to timers
+    if (!token || !refreshToken) {
+      console.log('[TimerEffect] Skipping effect: No tokens.');
+      return; 
+    }
+
     let inactivityTimer;
     let expiryTimer;
     let warningTimer;
-    
+    let timeInterval; // Declare timeInterval here
+
+    console.log('[TimerEffect] Running effect, token exists.'); // Log effect run
+
     const resetInactivityTimer = () => {
       clearTimeout(inactivityTimer);
-      
+      // console.log('[TimerEffect] Inactivity timer reset.'); // Log reset - Can be too noisy
+
       inactivityTimer = setTimeout(() => {
-        console.log('User inactive for too long, logging out');
+        console.error('[TimerEffect] User inactive for too long, logging out!'); // Log logout trigger
         logout();
-      }, INACTIVITY_TIMEOUT);
+      }, INACTIVITY_TIMEOUT); // Uses the 3-minute value
+       console.log(`[TimerEffect] New inactivity timer set for ${INACTIVITY_TIMEOUT/1000}s`); // Log new timer set
     };
-    
-    // Set expiry timer to automatically logout when token expires
+
+    // Set expiry timer logic (unchanged for now)
     if (tokenExpiryTime) {
-      const timeUntilExpiry = Math.max(0, tokenExpiryTime - Date.now());
-      
-      // Set timer to show warning before expiry
-      warningTimer = setTimeout(() => {
-        console.log('Token expiration warning');
-        setShowExpiryWarning(true);
-      }, Math.max(0, timeUntilExpiry - WARNING_BEFORE_TIMEOUT));
-      
-      // Set timer for actual expiry
-      expiryTimer = setTimeout(() => {
-        console.log('Token expired, logging out');
-        logout();
-      }, timeUntilExpiry);
-      
-      // Set interval to update remaining time display
-      const timeInterval = setInterval(() => {
-        const remaining = Math.max(0, tokenExpiryTime - Date.now());
-        setRemainingTime(remaining);
-        
-        if (remaining <= 0) {
-          clearInterval(timeInterval);
-        }
-      }, 1000);
-      
-      return () => {
-        clearTimeout(expiryTimer);
-        clearTimeout(warningTimer);
-        clearInterval(timeInterval);
-      };
+       console.log('[TimerEffect] Setting up expiry/warning timers.');
+       const timeUntilExpiry = Math.max(0, tokenExpiryTime - Date.now());
+
+       warningTimer = setTimeout(() => {
+         console.log('[TimerEffect] Token expiration warning triggered.');
+         setShowExpiryWarning(true);
+       }, Math.max(0, timeUntilExpiry - WARNING_BEFORE_TIMEOUT));
+
+       expiryTimer = setTimeout(() => {
+         console.log('[TimerEffect] Token expired, logging out.');
+         logout();
+       }, timeUntilExpiry);
+
+       // Assign to declared variable
+       timeInterval = setInterval(() => { 
+         const remaining = Math.max(0, tokenExpiryTime - Date.now());
+         setRemainingTime(remaining);
+         if (remaining <= 0) {
+           clearInterval(timeInterval);
+         }
+       }, 1000);
+    } else {
+       console.log('[TimerEffect] No tokenExpiryTime, skipping expiry timers.');
     }
-    
+
     // Set initial inactivity timer
+    console.log('[TimerEffect] Setting initial inactivity timer.');
     resetInactivityTimer();
-    
-    // Reset inactivity timer on user actions
+
+    // Event listeners to reset inactivity timer
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-    events.forEach(event => {
-      document.addEventListener(event, resetInactivityTimer);
-    });
-    
-    return () => {
-      clearTimeout(inactivityTimer);
-      events.forEach(event => {
-        document.removeEventListener(event, resetInactivityTimer);
-      });
+    console.log('[TimerEffect] Adding event listeners:', events);
+    const listenerCallback = (event) => { // Named callback for logging
+        // console.log(`[TimerEffect] Activity detected: ${event.type}`); // Can be too noisy, enable if needed
+        resetInactivityTimer();
     };
-  }, [token, tokenExpiryTime, logout]);
+    events.forEach(event => {
+      document.addEventListener(event, listenerCallback);
+    });
+
+    // Cleanup function
+    return () => {
+      console.log('[TimerEffect] Cleaning up timers and listeners.'); // Log cleanup
+      clearTimeout(inactivityTimer);
+      clearTimeout(expiryTimer);
+      clearTimeout(warningTimer);
+      // Check if interval exists before clearing
+      if(timeInterval) clearInterval(timeInterval); 
+      events.forEach(event => {
+        document.removeEventListener(event, listenerCallback);
+      });
+       console.log('[TimerEffect] Cleanup complete.');
+    };
+  // Ensure all relevant dependencies are included
+  }, [token, refreshToken, tokenExpiryTime, logout, calculateExpiryTime, INACTIVITY_TIMEOUT, WARNING_BEFORE_TIMEOUT]); // Add timeouts constants to dependencies
 
   // Update initial auth check to also check for refresh token
   useEffect(() => {
@@ -305,7 +330,7 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Updated function to perform token refresh
+  // Ensure extendSession is wrapped in useCallback
   const extendSession = useCallback(async () => {
     const currentRefreshToken = localStorage.getItem('refreshToken');
     if (!currentRefreshToken) {
@@ -342,7 +367,8 @@ export const AuthProvider = ({ children }) => {
       console.error('Failed to refresh token:', error.response?.status, error.response?.data || error.message);
       logout(); 
     }
-  }, [logout, calculateExpiryTime]);
+  // Add dependencies for extendSession: logout, calculateExpiryTime, setToken, setRefreshToken, setTokenExpiryTime, setShowExpiryWarning
+  }, [logout, calculateExpiryTime, setToken, setRefreshToken, setTokenExpiryTime, setShowExpiryWarning]); 
 
   const value = {
     token,

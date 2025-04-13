@@ -71,53 +71,16 @@ function App() {
             <SessionExpiryWarning />
             <Box sx={{ p: 2 }}>
               <Routes>
-                {/* Public routes */}
                 <Route path="/login" element={<Login />} />
                 <Route path="/register" element={<Register />} />
-                
-                {/* Protected routes wrapped with IFSProvider */}
-                <Route path="/" element={
-                  <ProtectedIFSRoute>
-                    <Dashboard />
-                  </ProtectedIFSRoute>
-                } />
-                <Route path="/parts" element={
-                  <ProtectedIFSRoute>
-                    <PartsView />
-                  </ProtectedIFSRoute>
-                } />
-                <Route path="/parts/new" element={
-                  <ProtectedIFSRoute>
-                    <NewPartPage />
-                  </ProtectedIFSRoute>
-                } />
-                <Route path="/parts/:partId" element={
-                  <ProtectedIFSRoute>
-                    <PartDetailsPage />
-                  </ProtectedIFSRoute>
-                } />
-                <Route path="/session/:sessionId" element={
-                  <ProtectedIFSRoute>
-                    <GuidedSessionChatPage />
-                  </ProtectedIFSRoute>
-                } />
-                <Route path="/sessions" element={
-                  <ProtectedIFSRoute>
-                    <GuidedSessionsPage />
-                  </ProtectedIFSRoute>
-                } />
-                <Route path="/journal" element={
-                  <ProtectedIFSRoute>
-                    <JournalPage />
-                  </ProtectedIFSRoute>
-                } />
-                <Route path="/system-map" element={
-                  <ProtectedIFSRoute>
-                    <ErrorBoundary FallbackComponent={ErrorFallback}>
-                      <SystemMapPage />
-                    </ErrorBoundary>
-                  </ProtectedIFSRoute>
-                } />
+                <Route path="/" element={<ProtectedIFSRoute><Dashboard /></ProtectedIFSRoute>} />
+                <Route path="/parts" element={<ProtectedIFSRoute><PartsView /></ProtectedIFSRoute>} />
+                <Route path="/parts/new" element={<ProtectedIFSRoute><NewPartPage /></ProtectedIFSRoute>} />
+                <Route path="/parts/:partId" element={<ProtectedIFSRoute><PartDetailsPage /></ProtectedIFSRoute>} />
+                <Route path="/session/:sessionId" element={<ProtectedIFSRoute><GuidedSessionChatPage /></ProtectedIFSRoute>} />
+                <Route path="/sessions" element={<ProtectedIFSRoute><GuidedSessionsPage /></ProtectedIFSRoute>} />
+                <Route path="/journal" element={<ProtectedIFSRoute><JournalPage /></ProtectedIFSRoute>} />
+                <Route path="/system-map" element={<ProtectedIFSRoute><ErrorBoundary FallbackComponent={ErrorFallback}><SystemMapPage /></ErrorBoundary></ProtectedIFSRoute>} />
               </Routes>
             </Box>
           </div>
