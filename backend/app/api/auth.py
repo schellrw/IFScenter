@@ -90,39 +90,18 @@ def register():
         
         if not supabase_available:
             logger.warning("Supabase is not available but SUPABASE_USE_FOR_AUTH is True")
-            # Fall back to JWT authentication if Supabase is not available
-            logger.info("Falling back to JWT authentication")
-    
+            # Fallback logic removed here - we rely on auth_adapter now
+            # If Supabase is configured but unavailable, adapter should handle it
+            # For registration, we might need a specific check here if we want to prevent registration
+            # return jsonify({"error": "Registration service temporarily unavailable due to auth system issue"}), 503
+            # For now, let register_user handle the check
+
     try:
-        # Use JWT authentication as a fallback if Supabase is not available
-        temp_use_jwt = not supabase_available and using_supabase
+        # Call the updated register_user which returns user_data, access_token, refresh_token
+        user_data, access_token, refresh_token = register_user(username, email, password)
         
-        # Call register_user with appropriate auth method
-        if temp_use_jwt:
-            # Temporarily import create_access_token
-            from flask_jwt_extended import create_access_token
-            
-            # Check for existing user
-            existing_user = User.query.filter_by(username=username).first()
-            if existing_user:
-                return jsonify({"error": "Username already exists"}), 400
-                
-            existing_email = User.query.filter_by(email=email).first()
-            if existing_email:
-                return jsonify({"error": "Email already exists"}), 400
-            
-            # Create new user with JWT auth
-            user = User(username=username, email=email, password=password)
-            db.session.add(user)
-            db.session.commit()
-            
-            # Create access token
-            access_token = create_access_token(identity=str(user.id))
-            
-            user_data = user.to_dict()
-        else:
-            # Use the auth adapter for registration as normal
-            user_data, access_token = register_user(username, email, password)
+        # Determine auth method based on whether refresh_token was returned (only Supabase returns one)
+        auth_method = "supabase" if refresh_token else "jwt"
         
         # Create a new system for the user
         try:
@@ -157,12 +136,17 @@ def register():
             }), 201
             
         logger.info(f"User {username} registered successfully with ID: {user_data.get('id')}")
-        return jsonify({
+        response_data = {
             "message": "User registered successfully",
             "access_token": access_token,
             "user": user_data,
-            "auth_method": "jwt" if temp_use_jwt else "supabase"
-        }), 201
+            "auth_method": auth_method
+        }
+        # Add refresh token to response only if using Supabase
+        if auth_method == "supabase":
+            response_data["refresh_token"] = refresh_token
+            
+        return jsonify(response_data), 201
     except ValueError as e:
         logger.warning(f"Registration validation error: {str(e)}")
         return jsonify({"error": str(e)}), 400
@@ -196,15 +180,24 @@ def login():
         username = data.get('username')
         password = data.get('password')
         
-        # Use the auth adapter for login
-        user_data, access_token = login_user(username, password)
+        # Call the updated login_user which returns user_data, access_token, refresh_token
+        user_data, access_token, refresh_token = login_user(username, password)
         
-        logger.info(f"User {username} logged in successfully")
-        return jsonify({
+        # Determine auth method based on whether refresh_token was returned
+        auth_method = "supabase" if refresh_token else "jwt"
+        
+        logger.info(f"User {username} logged in successfully using {auth_method}")
+        response_data = {
             "message": "Login successful",
             "access_token": access_token,
-            "user": user_data
-        })
+            "user": user_data,
+            "auth_method": auth_method
+        }
+        # Add refresh token to response only if using Supabase
+        if auth_method == "supabase":
+            response_data["refresh_token"] = refresh_token
+            
+        return jsonify(response_data)
     except ValidationError as e:
         return jsonify({"error": "Validation failed", "details": e.messages}), 400
     except ValueError as e:
@@ -228,42 +221,71 @@ def get_current_user():
     return jsonify(g.current_user)
 
 @auth_bp.route('/refresh-token', methods=['POST'])
-@auth_required
 def refresh_token():
-    """Refresh the user's access token before it expires.
+    """Refresh the user's Supabase access token using a refresh token.
     
-    This endpoint allows extending the user's session without requiring
-    them to log in again, as long as their current token is still valid.
+    Expects a JSON body with {\"refresh_token\": \"...\"}.
     
     Returns:
-        JSON response with a new access token.
+        JSON response with new access_token and refresh_token on success.
     """
+    if not use_supabase_auth:
+        # If not using Supabase, this endpoint is not applicable
+        # Or, implement JWT refresh if needed (currently creates new token in else block below)
+        # For consistency, let's return an error if Supabase isn't the configured method.
+        logger.warning("Refresh token endpoint called while not using Supabase auth.")
+        return jsonify({"error": "Token refresh only available for Supabase authentication"}), 400
+
+    data = request.json
+    refresh_token_from_request = data.get('refresh_token')
+
+    if not refresh_token_from_request:
+        logger.warning("Refresh token request missing refresh_token in body")
+        return jsonify({"error": "Missing refresh_token in request body"}), 400
+
     try:
-        if not g.current_user or not g.current_user.get('id'):
-            return jsonify({"error": "User not found"}), 404
-            
-        user_id = g.current_user.get('id')
+        from ..utils.supabase_client import supabase
         
-        if use_supabase_auth:
-            # For Supabase Auth, you'd implement their token refresh mechanism
-            # This is a placeholder - implement actual Supabase refresh logic
-            try:
-                from ..utils.supabase_client import supabase
-                # This would need to be implemented based on Supabase's API
-                logger.warning("Supabase token refresh not fully implemented")
-                return jsonify({"error": "Token refresh for Supabase not implemented"}), 501
-            except Exception as e:
-                logger.error(f"Supabase token refresh error: {str(e)}")
-                return jsonify({"error": "Failed to refresh token"}), 500
-        else:
-            # For JWT, create a new token with the same identity
-            new_access_token = create_access_token(identity=user_id)
+        if not supabase.is_available():
+             logger.error("Supabase client not available during token refresh attempt.")
+             return jsonify({"error": "Authentication service unavailable"}), 503
+
+        logger.info("Attempting to refresh Supabase session...")
+        
+        # Use the refresh token to get a new session
+        # Note: The access_token in the session object is the NEW access token.
+        # Pass None for access_token as we are using the refresh token method.
+        new_session_response = supabase.client.auth.set_session(
+            access_token=None,  # Important: Set access_token to None when using refresh_token
+            refresh_token=refresh_token_from_request
+        )
+
+        if not new_session_response or not new_session_response.session:
+            logger.warning("Supabase set_session did not return a valid session.")
+            # This often means the refresh token was invalid or expired
+            return jsonify({"error": "Invalid or expired refresh token"}), 401 
             
-            logger.info(f"Token refreshed for user {user_id}")
-            return jsonify({
-                "message": "Token refreshed successfully",
-                "access_token": new_access_token
-            })
+        new_access_token = new_session_response.session.access_token
+        new_refresh_token = new_session_response.session.refresh_token # Supabase might issue a new refresh token
+
+        logger.info(f"Supabase token refreshed successfully for user: {new_session_response.user.id if new_session_response.user else 'Unknown'}")
+        
+        return jsonify({
+            "message": "Token refreshed successfully",
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token 
+        })
+
     except Exception as e:
-        logger.error(f"Token refresh error: {str(e)}")
-        return jsonify({"error": "An error occurred during token refresh"}), 500 
+        # Handle potential exceptions from the Supabase client, e.g., network errors, invalid token errors
+        logger.error(f"Supabase token refresh error: {str(e)}")
+        # Check if the error message indicates an invalid token (this might vary based on Supabase/GoTrue versions)
+        if "invalid refresh token" in str(e).lower() or "invalid grant" in str(e).lower():
+             return jsonify({"error": "Invalid or expired refresh token"}), 401
+        return jsonify({"error": "Failed to refresh token due to server error"}), 500
+
+@auth_bp.route('/logout', methods=['POST'])
+@auth_required
+def logout():
+    # Implement logout logic here
+    pass 

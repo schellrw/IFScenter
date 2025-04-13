@@ -28,6 +28,7 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
+  const [refreshToken, setRefreshToken] = useState(localStorage.getItem('refreshToken'));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [detailedError, setDetailedError] = useState(null);
@@ -53,32 +54,40 @@ export const AuthProvider = ({ children }) => {
     return Date.now() + 24 * 60 * 60 * 1000;
   }, []);
 
-  // Function to logout user - converted to useCallback to avoid dependency issues
+  // Updated logout function
   const logout = useCallback(() => {
     console.log('Logging out user');
     setToken(null);
+    setRefreshToken(null);
     setCurrentUser(null);
     setTokenExpiryTime(null);
     setShowExpiryWarning(false);
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
   }, []);
 
-  // Set axios default headers when token changes
+  // Update useEffect to handle both tokens
   useEffect(() => {
-    if (token) {
+    if (token && refreshToken) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       localStorage.setItem('token', token);
-      console.log('Token set in localStorage and axios headers:', token.substring(0, 10) + '...');
+      localStorage.setItem('refreshToken', refreshToken);
+      console.log('Access Token set:', token.substring(0, 10) + '...');
+      console.log('Refresh Token set:', refreshToken.substring(0, 10) + '...');
       
-      // Calculate and set token expiry time
       const expiryTime = calculateExpiryTime(token);
       setTokenExpiryTime(expiryTime);
       console.log(`Token will expire at: ${new Date(expiryTime).toLocaleString()}`);
     } else {
       delete axios.defaults.headers.common['Authorization'];
       localStorage.removeItem('token');
-      console.log('Token removed from localStorage and axios headers');
+      localStorage.removeItem('refreshToken');
+      console.log('Tokens removed from localStorage and axios headers');
+      if (currentUser) {
+          logout();
+      }
     }
-  }, [token, calculateExpiryTime]);
+  }, [token, refreshToken, calculateExpiryTime, logout, currentUser]);
 
   // Global interceptor for handling 401 errors
   useEffect(() => {
@@ -166,51 +175,50 @@ export const AuthProvider = ({ children }) => {
     };
   }, [token, tokenExpiryTime, logout]);
 
-  // Initial auth check using token from localStorage
+  // Update initial auth check to also check for refresh token
   useEffect(() => {
     const initialToken = localStorage.getItem('token');
-    if (initialToken && initialToken !== 'undefined' && initialToken !== 'null') {
-      console.log('Found token in localStorage:', initialToken.substring(0, 10) + '...');
+    const initialRefreshToken = localStorage.getItem('refreshToken');
+    if (initialToken && initialToken !== 'undefined' && initialToken !== 'null' &&
+        initialRefreshToken && initialRefreshToken !== 'undefined' && initialRefreshToken !== 'null') {
+      console.log('Found tokens in localStorage');
       setToken(initialToken);
+      setRefreshToken(initialRefreshToken);
     } else {
-      console.log('No valid token found in localStorage');
+      console.log('Valid token pair not found in localStorage');
       setToken(null);
+      setRefreshToken(null);
     }
-    setLoading(false);
   }, []);
 
-  // Check if there's a stored token on mount
+  // Check token validity (logic remains similar, but ensure setLoading(false) is hit)
   useEffect(() => {
     const checkAuth = async () => {
-      if (token) {
+      if (token && refreshToken) { 
         try {
           console.log('Checking stored token validity...');
-          const response = await axios.get(`${API_BASE_URL}/api/system`);
-          console.log('Token is valid, user authenticated');
-          setCurrentUser({
-            id: response.data.user_id,
-            username: 'User' // You might want to fetch user details in a production app
-          });
+          const response = await axios.get(`${API_BASE_URL}/api/me`); 
+          console.log('Token appears valid, user data:', response.data);
+          setCurrentUser(response.data); 
         } catch (err) {
-          console.error('Auth token invalid:', err);
-          console.error('Response data:', err.response?.data);
-          console.error('Status code:', err.response?.status);
-          setToken(null);
+          console.error('Auth token validation failed:', err.response?.status, err.response?.data || err.message);
+          logout();
           setDetailedError({
-            message: 'Token validation failed',
+            message: 'Session invalid or expired', 
             status: err.response?.status,
             data: err.response?.data,
             error: err.message
           });
         }
       } else {
-        console.log('No token found, user not authenticated');
+        console.log('No tokens found, user not authenticated');
+        setCurrentUser(null);
       }
       setLoading(false);
     };
 
     checkAuth();
-  }, [token]);
+  }, [token, refreshToken, logout]);
 
   const register = async (username, email, password) => {
     setLoading(true);
@@ -225,9 +233,7 @@ export const AuthProvider = ({ children }) => {
       });
       console.log('Registration response:', response.data);
       
-      // Check if email confirmation is required
       if (response.data.confirmation_required) {
-        // Don't set token or current user if confirmation is required
         console.log('Email confirmation required for registration');
         return {
           ...response.data,
@@ -235,8 +241,8 @@ export const AuthProvider = ({ children }) => {
         };
       }
       
-      // Normal flow when confirmation is not required
       setToken(response.data.access_token);
+      setRefreshToken(response.data.refresh_token || null);
       setCurrentUser(response.data.user);
       return response.data;
     } catch (err) {
@@ -267,17 +273,17 @@ export const AuthProvider = ({ children }) => {
       });
       console.log('Login successful, response:', response.data);
       
-      if (!response.data.access_token) {
-        throw new Error('No access token received from server');
+      if (!response.data.access_token || !response.data.refresh_token) {
+        console.error('Login response missing access_token or refresh_token');
+        throw new Error('Login failed: Invalid response from server.');
       }
       
-      // Save token and set current user
-      const receivedToken = response.data.access_token;
-      setToken(receivedToken);
+      setToken(response.data.access_token);
+      setRefreshToken(response.data.refresh_token);
       setCurrentUser(response.data.user);
       
-      // Double-check token was set
-      console.log(`Token saved: ${receivedToken.substring(0, 10)}...`);
+      console.log(`Access Token saved: ${response.data.access_token.substring(0, 10)}...`);
+      console.log(`Refresh Token saved: ${response.data.refresh_token.substring(0, 10)}...`);
       
       return response.data;
     } catch (err) {
@@ -299,51 +305,48 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Function to extend the session
+  // Updated function to perform token refresh
   const extendSession = useCallback(async () => {
-    console.log('Extending user session');
+    const currentRefreshToken = localStorage.getItem('refreshToken');
+    if (!currentRefreshToken) {
+      console.error('Cannot refresh session: No refresh token available.');
+      logout();
+      return; 
+    }
+
+    console.log('Attempting to refresh token...');
     setShowExpiryWarning(false);
     
     try {
-      // Option 1: For simple inactivity extension, we just need to hide the warning
-      // and the inactivity timer will be reset by user interaction
-      
-      // Option 2: If you want to actually refresh the token with the server
-      // Uncomment the following code once you implement a token refresh endpoint
-      
-      /*
-      // Call token refresh API
-      const response = await axios.post(`${API_BASE_URL}/api/refresh-token`, {}, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      const response = await axios.post(`${API_BASE_URL}/api/refresh-token`, { 
+        refresh_token: currentRefreshToken 
       });
       
-      if (response.data && response.data.access_token) {
-        // Update token with new one
-        const newToken = response.data.access_token;
-        setToken(newToken);
-        console.log('Token refreshed successfully');
-      }
-      */
-      
-      // For now, we'll simulate extending the token by adding 30 minutes to expiry time
-      // This is just for demonstration - in production, always get a new token from server
-      if (tokenExpiryTime) {
-        const extendedTime = Math.max(tokenExpiryTime, Date.now() + 30 * 60 * 1000);
-        setTokenExpiryTime(extendedTime);
-        console.log(`Session extended until: ${new Date(extendedTime).toLocaleString()}`);
+      if (response.data && response.data.access_token && response.data.refresh_token) {
+        const newAccessToken = response.data.access_token;
+        const newRefreshToken = response.data.refresh_token;
+        
+        setToken(newAccessToken);
+        setRefreshToken(newRefreshToken);
+        
+        const expiryTime = calculateExpiryTime(newAccessToken);
+        setTokenExpiryTime(expiryTime);
+        
+        console.log('Token refreshed successfully.');
+        console.log(`New expiry time: ${new Date(expiryTime).toLocaleString()}`);
+      } else {
+        console.error('Token refresh failed: Invalid response from server.', response.data);
+        logout();
       }
     } catch (error) {
-      console.error('Failed to extend session:', error);
-      // If extension fails, we should at least hide the warning
-      // as user has shown activity
+      console.error('Failed to refresh token:', error.response?.status, error.response?.data || error.message);
+      logout(); 
     }
-  }, [token, tokenExpiryTime]);
+  }, [logout, calculateExpiryTime]);
 
   const value = {
     token,
-    setToken,
+    refreshToken,
     currentUser,
     loading,
     error,
@@ -351,8 +354,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     register,
-    isAuthenticated: !!token,
-    // Expose session timeout functionality
+    isAuthenticated: !!token && !!refreshToken,
     showExpiryWarning,
     remainingTime,
     extendSession
