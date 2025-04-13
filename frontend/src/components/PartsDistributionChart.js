@@ -24,18 +24,25 @@ const PartsDistributionChart = ({ parts, height = 200 }) => {
     // Clear previous chart
     d3.select(svgRef.current).selectAll('*').remove();
     
-    // Get role counts
+    // Separate 'Self' part if it exists, checking for 'Core Self' role
+    const selfPart = parts.find(p => p.role?.toLowerCase() === 'core self');
+    const otherParts = parts.filter(p => p.role?.toLowerCase() !== 'core self');
+    
+    // Get role counts for non-Self parts
     const roleCounts = {};
-    parts.forEach(part => {
+    otherParts.forEach(part => {
       const role = part.role || 'unknown';
       roleCounts[role] = (roleCounts[role] || 0) + 1;
     });
     
-    // Prepare data for pie chart
+    // Prepare data for pie chart (excluding Self)
     const data = Object.entries(roleCounts).map(([role, count]) => ({
       role,
       count
     }));
+    
+    // Calculate total count for percentage calculation (excluding Self)
+    const totalOtherParts = otherParts.length;
     
     // Sort data alphabetically by role
     data.sort((a, b) => a.role.localeCompare(b.role));
@@ -84,25 +91,33 @@ const PartsDistributionChart = ({ parts, height = 200 }) => {
           .style('opacity', 1)
           .attr('stroke', '#333')
           .style('stroke-width', '3px');
-        
-        // Add percentage in the center
-        svg.append('text')
-          .attr('id', 'percentage')
-          .attr('text-anchor', 'middle')
-          .attr('dy', '0.35em')
-          .attr('font-size', '16px')
-          .attr('font-weight', 'bold')
-          .text(`${d.data.role}: ${Math.round(d.data.count / parts.length * 100)}%`);
       })
       .on('mouseout', function() {
         d3.select(this)
           .style('opacity', 0.8)
           .attr('stroke', 'white')
           .style('stroke-width', '2px');
-        
-        // Remove percentage
-        svg.select('#percentage').remove();
       });
+    
+    // Add the center circle for 'Self' if it exists
+    if (selfPart) {
+      svg.append('circle')
+        .attr('cx', 0)
+        .attr('cy', 0)
+        .attr('r', radius * 0.45) // Make it slightly smaller than the inner radius
+        .attr('fill', getColorForRole('self'))
+        .attr('stroke', 'white')
+        .style('stroke-width', '2px');
+
+      svg.append('text')
+        .attr('text-anchor', 'middle')
+        .attr('dy', '0.35em') // Vertically center
+        .text('Self')
+        .style('fill', 'white') // Adjust color for contrast if needed
+        .style('font-size', '14px')
+        .style('font-weight', 'bold')
+        .style('pointer-events', 'none'); // Prevent text from interfering with mouse events
+    }
     
     // Add labels
     const labels = svg.selectAll('g.label')
@@ -131,17 +146,19 @@ const PartsDistributionChart = ({ parts, height = 200 }) => {
         return midAngle < Math.PI ? 'start' : 'end';
       })
       .text(d => {
-        // Only show label if the segment is big enough (more than 5%)
-        return d.data.count / parts.length > 0.05 ? d.data.role : '';
+        // Only show label if the segment is big enough (e.g., more than 5% of non-self parts)
+        // Use totalOtherParts for percentage calculation
+        return totalOtherParts > 0 && (d.data.count / totalOtherParts > 0.05) ? d.data.role : '';
       })
       .style('font-size', '10px')
       .style('fill', '#333');
     
-    // Add count labels inside arcs (only for segments > 10%)
+    // Add count labels inside arcs (only for segments > 10% of non-self parts)
     svg.selectAll('g.count')
       .data(pie(data))
       .enter()
-      .filter(d => d.data.count / parts.length > 0.1) // Only show for segments > 10%
+      // Use totalOtherParts for percentage calculation
+      .filter(d => totalOtherParts > 0 && d.data.count / totalOtherParts > 0.1) 
       .append('text')
       .attr('transform', d => `translate(${arc.centroid(d)})`)
       .attr('dy', '0.35em')
@@ -152,7 +169,7 @@ const PartsDistributionChart = ({ parts, height = 200 }) => {
       .style('fill', 'white')
       .style('pointer-events', 'none');
     
-  }, [parts]);
+  }, [parts, height]); // Added height dependency as it affects calculations
   
   if (!parts) {
     return <CircularProgress />;

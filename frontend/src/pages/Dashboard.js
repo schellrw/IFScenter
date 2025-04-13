@@ -737,26 +737,6 @@ const Dashboard = () => {
           IFS System Dashboard
         </Typography>
 
-        {/* Connection Status */}
-        {connectionStatus && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            {connectionStatus}
-          </Alert>
-        )}
-        
-        {/* Error Message */}
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-        
-        {ifsError && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {ifsError}
-          </Alert>
-        )}
-        
         <Grid container spacing={3}>
           {/* System Overview */}
           <Grid item xs={12} md={4}>
@@ -1079,6 +1059,13 @@ const Dashboard = () => {
             </Paper>
           </Grid>
         </Grid>
+
+        {/* Connection Status and Errors */}
+        {error && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {error}
+          </Alert>
+        )}
       </Box>
     </Container>
   );

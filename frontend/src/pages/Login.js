@@ -13,7 +13,7 @@ import {
 } from '@mui/material';
 
 const Login = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showDebugInfo, setShowDebugInfo] = useState(false);
   const { login, error, detailedError, loading } = useAuth();
@@ -22,8 +22,8 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      console.log(`Attempting to login user: ${username}`);
-      await login(username, password);
+      console.log(`Attempting to login user: ${email}`);
+      await login(email, password);
       console.log('Login successful, navigating to home');
       navigate('/');
     } catch (error) {
@@ -63,9 +63,9 @@ const Login = () => {
           <form onSubmit={handleSubmit}>
             <TextField
               fullWidth
-              label="Username"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              label="Email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               margin="normal"
               required
             />

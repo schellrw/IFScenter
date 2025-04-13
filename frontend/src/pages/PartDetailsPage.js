@@ -174,14 +174,16 @@ const PartDetailsPage = () => {
                 >
                   Edit
                 </Button>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteIcon />}
-                  onClick={() => setDeleteDialog(true)}
-                >
-                  Delete
-                </Button>
+                {part?.name !== 'Self' && (
+                  <Button
+                    variant="outlined"
+                    color="error"
+                    startIcon={<DeleteIcon />}
+                    onClick={() => setDeleteDialog(true)}
+                  >
+                    Delete
+                  </Button>
+                )}
               </>
             )}
           </Stack>
