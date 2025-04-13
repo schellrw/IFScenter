@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Container, Typography, Box, Grid, Paper, Alert, List, ListItem,
   ListItemText, ListItemIcon, Divider, Button, Chip, CircularProgress,
@@ -671,6 +671,17 @@ const Dashboard = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [system, journals, lastUpdateCheck]);
 
+  // Memoize the parts and relationships arrays for the MiniSystemMap
+  const partsForMap = useMemo(() => {
+    // Ensure system and system.parts exist before calling Object.values
+    return system && system.parts ? Object.values(system.parts) : [];
+  }, [system?.parts]); // Dependency is system.parts itself
+
+  const relationshipsForMap = useMemo(() => {
+    // Ensure system and system.relationships exist
+    return system && system.relationships ? Object.values(system.relationships) : [];
+  }, [system?.relationships]); // Dependency is system.relationships itself
+
   const handleActivityClick = (type, id) => {
     if (type === 'journal') {
       // Enhanced navigation for journal entries - takes user directly to the specific journal
@@ -726,26 +737,6 @@ const Dashboard = () => {
           IFS System Dashboard
         </Typography>
 
-        {/* Connection Status */}
-        {connectionStatus && (
-          <Alert severity="success" sx={{ mb: 2 }}>
-            {connectionStatus}
-          </Alert>
-        )}
-        
-        {/* Error Message */}
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
-        
-        {ifsError && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {ifsError}
-          </Alert>
-        )}
-        
         <Grid container spacing={3}>
           {/* System Overview */}
           <Grid item xs={12} md={4}>
@@ -966,7 +957,7 @@ const Dashboard = () => {
                 <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
                   <CircularProgress />
                 </Box>
-              ) : system && Object.keys(system.parts).length > 0 ? (
+              ) : system && partsForMap.length > 0 ? (
                 <Grid container spacing={3}>
                   {/* Parts Distribution Chart */}
                   <Grid item xs={12} md={4}>
@@ -976,7 +967,7 @@ const Dashboard = () => {
                         <Typography variant="subtitle1">Parts by Role</Typography>
                       </Box>
                       <PartsDistributionChart 
-                        parts={system ? Object.values(system.parts) : []} 
+                        parts={partsForMap}
                         height={220} 
                       />
                     </Paper>
@@ -990,7 +981,7 @@ const Dashboard = () => {
                         <Typography variant="subtitle1">Emotions Across Parts</Typography>
                       </Box>
                       <EmotionsChart 
-                        parts={system ? Object.values(system.parts) : []} 
+                        parts={partsForMap}
                         height={220} 
                       />
                     </Paper>
@@ -1004,8 +995,8 @@ const Dashboard = () => {
                         <Typography variant="subtitle1">Mini System Map</Typography>
                       </Box>
                       <MiniSystemMap 
-                        parts={system ? Object.values(system.parts) : []}
-                        relationships={system ? Object.values(system.relationships) : []}
+                        parts={partsForMap}
+                        relationships={relationshipsForMap}
                         height={220}
                         maxNodes={8}
                       />
@@ -1068,6 +1059,13 @@ const Dashboard = () => {
             </Paper>
           </Grid>
         </Grid>
+
+        {/* Connection Status and Errors */}
+        {error && (
+          <Alert severity="error" sx={{ mt: 2 }}>
+            {error}
+          </Alert>
+        )}
       </Box>
     </Container>
   );

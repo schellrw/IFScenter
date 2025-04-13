@@ -17,8 +17,13 @@ API_BASE_URL = API_BASE_URL.replace(/["']/g, '');
 API_BASE_URL = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
 
 // Session timeout configuration
+// --- PRODUCTION VALUES --- 
 const INACTIVITY_TIMEOUT = 30 * 60 * 1000; // 30 minutes in milliseconds
 const WARNING_BEFORE_TIMEOUT = 60 * 1000; // Show warning 1 minute before logout
+// const INACTIVITY_TIMEOUT = 3 * 60 * 1000; // TEST: 3 minutes inactivity
+// const WARNING_BEFORE_TIMEOUT = 30 * 1000; // TEST: Show warning 30 seconds before calculated expiry
+// Note: Warning timer logic inside the useEffect is based on tokenExpiryTime, 
+// which correctly relates to the 1-hour token, not the inactivity timeout.
 
 // Add debug logging
 console.log(`Using API base URL: ${API_BASE_URL}`);
@@ -28,6 +33,7 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider = ({ children }) => {
   const [currentUser, setCurrentUser] = useState(null);
   const [token, setToken] = useState(localStorage.getItem('token'));
+  const [refreshToken, setRefreshToken] = useState(localStorage.getItem('refreshToken'));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [detailedError, setDetailedError] = useState(null);
@@ -37,48 +43,53 @@ export const AuthProvider = ({ children }) => {
   const [showExpiryWarning, setShowExpiryWarning] = useState(false);
   const [remainingTime, setRemainingTime] = useState(null);
 
-  // Parse JWT token to get expiration time
+  // Wrap calculateExpiryTime in useCallback
   const calculateExpiryTime = useCallback((token) => {
     try {
-      // JWT token consists of three parts separated by dots
       const payload = JSON.parse(atob(token.split('.')[1]));
       if (payload.exp) {
-        // JWT expiration is in seconds since epoch
         return payload.exp * 1000; // Convert to milliseconds
       }
     } catch (e) {
       console.error('Error parsing token expiration:', e);
     }
-    // Fallback to 1 day from now if can't parse token
-    return Date.now() + 24 * 60 * 60 * 1000;
+    return Date.now() + 24 * 60 * 60 * 1000; // Fallback
   }, []);
 
-  // Function to logout user - converted to useCallback to avoid dependency issues
+  // Updated logout function
   const logout = useCallback(() => {
     console.log('Logging out user');
     setToken(null);
+    setRefreshToken(null);
     setCurrentUser(null);
     setTokenExpiryTime(null);
     setShowExpiryWarning(false);
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
   }, []);
 
-  // Set axios default headers when token changes
+  // Update useEffect to handle both tokens
   useEffect(() => {
-    if (token) {
+    if (token && refreshToken) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       localStorage.setItem('token', token);
-      console.log('Token set in localStorage and axios headers:', token.substring(0, 10) + '...');
+      localStorage.setItem('refreshToken', refreshToken);
+      console.log('Access Token set:', token.substring(0, 10) + '...');
+      console.log('Refresh Token set:', refreshToken.substring(0, 10) + '...');
       
-      // Calculate and set token expiry time
       const expiryTime = calculateExpiryTime(token);
       setTokenExpiryTime(expiryTime);
       console.log(`Token will expire at: ${new Date(expiryTime).toLocaleString()}`);
     } else {
       delete axios.defaults.headers.common['Authorization'];
       localStorage.removeItem('token');
-      console.log('Token removed from localStorage and axios headers');
+      localStorage.removeItem('refreshToken');
+      console.log('Tokens removed from localStorage and axios headers');
+      if (currentUser) {
+          logout();
+      }
     }
-  }, [token, calculateExpiryTime]);
+  }, [token, refreshToken, calculateExpiryTime, logout, currentUser]);
 
   // Global interceptor for handling 401 errors
   useEffect(() => {
@@ -86,131 +97,153 @@ export const AuthProvider = ({ children }) => {
       response => response,
       error => {
         if (error.response && error.response.status === 401) {
-          console.error('Received 401 unauthorized error, token might be expired');
-          logout();
+          // Check if it's the refresh token endpoint itself failing
+          if (error.config.url.includes('/api/refresh-token')) {
+            console.error('Refresh token failed (401), logging out.');
+          } else {
+            console.error('Received 401 unauthorized, token might be expired or invalid. Logging out.');
+            // Optional: Here you could attempt ONE refresh before logging out
+            // attemptTokenRefresh().catch(() => logout()); 
+          }
+          logout(); // Logout on 401
         }
         return Promise.reject(error);
       }
     );
     
     return () => {
-      // Clean up interceptor on unmount
       axios.interceptors.response.eject(interceptor);
     };
-  }, [logout]);
+  }, [logout]); // Dependency
 
-  // Inactivity timer and token expiration timer
+  // Inactivity timer and token expiration timer with added logging
   useEffect(() => {
-    if (!token) return;
-    
+    // If no token, do nothing related to timers
+    if (!token || !refreshToken) {
+      console.log('[TimerEffect] Skipping effect: No tokens.');
+      return; 
+    }
+
     let inactivityTimer;
     let expiryTimer;
     let warningTimer;
-    
+    let timeInterval; // Declare timeInterval here
+
+    console.log('[TimerEffect] Running effect, token exists.'); // Log effect run
+
     const resetInactivityTimer = () => {
       clearTimeout(inactivityTimer);
-      
-      inactivityTimer = setTimeout(() => {
-        console.log('User inactive for too long, logging out');
-        logout();
-      }, INACTIVITY_TIMEOUT);
-    };
-    
-    // Set expiry timer to automatically logout when token expires
-    if (tokenExpiryTime) {
-      const timeUntilExpiry = Math.max(0, tokenExpiryTime - Date.now());
-      
-      // Set timer to show warning before expiry
-      warningTimer = setTimeout(() => {
-        console.log('Token expiration warning');
-        setShowExpiryWarning(true);
-      }, Math.max(0, timeUntilExpiry - WARNING_BEFORE_TIMEOUT));
-      
-      // Set timer for actual expiry
-      expiryTimer = setTimeout(() => {
-        console.log('Token expired, logging out');
-        logout();
-      }, timeUntilExpiry);
-      
-      // Set interval to update remaining time display
-      const timeInterval = setInterval(() => {
-        const remaining = Math.max(0, tokenExpiryTime - Date.now());
-        setRemainingTime(remaining);
-        
-        if (remaining <= 0) {
-          clearInterval(timeInterval);
-        }
-      }, 1000);
-      
-      return () => {
-        clearTimeout(expiryTimer);
-        clearTimeout(warningTimer);
-        clearInterval(timeInterval);
-      };
-    }
-    
-    // Set initial inactivity timer
-    resetInactivityTimer();
-    
-    // Reset inactivity timer on user actions
-    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
-    events.forEach(event => {
-      document.addEventListener(event, resetInactivityTimer);
-    });
-    
-    return () => {
-      clearTimeout(inactivityTimer);
-      events.forEach(event => {
-        document.removeEventListener(event, resetInactivityTimer);
-      });
-    };
-  }, [token, tokenExpiryTime, logout]);
+      // console.log('[TimerEffect] Inactivity timer reset.'); // Log reset - Can be too noisy
 
-  // Initial auth check using token from localStorage
+      inactivityTimer = setTimeout(() => {
+        console.error('[TimerEffect] User inactive for too long, logging out!'); // Log logout trigger
+        logout();
+      }, INACTIVITY_TIMEOUT); // Uses the 3-minute value
+       console.log(`[TimerEffect] New inactivity timer set for ${INACTIVITY_TIMEOUT/1000}s`); // Log new timer set
+    };
+
+    // Set expiry timer logic (unchanged for now)
+    if (tokenExpiryTime) {
+       console.log('[TimerEffect] Setting up expiry/warning timers.');
+       const timeUntilExpiry = Math.max(0, tokenExpiryTime - Date.now());
+
+       warningTimer = setTimeout(() => {
+         console.log('[TimerEffect] Token expiration warning triggered.');
+         setShowExpiryWarning(true);
+       }, Math.max(0, timeUntilExpiry - WARNING_BEFORE_TIMEOUT));
+
+       expiryTimer = setTimeout(() => {
+         console.log('[TimerEffect] Token expired, logging out.');
+         logout();
+       }, timeUntilExpiry);
+
+       // Assign to declared variable
+       timeInterval = setInterval(() => { 
+         const remaining = Math.max(0, tokenExpiryTime - Date.now());
+         setRemainingTime(remaining);
+         if (remaining <= 0) {
+           clearInterval(timeInterval);
+         }
+       }, 1000);
+    } else {
+       console.log('[TimerEffect] No tokenExpiryTime, skipping expiry timers.');
+    }
+
+    // Set initial inactivity timer
+    console.log('[TimerEffect] Setting initial inactivity timer.');
+    resetInactivityTimer();
+
+    // Event listeners to reset inactivity timer
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    console.log('[TimerEffect] Adding event listeners:', events);
+    const listenerCallback = (event) => { // Named callback for logging
+        // console.log(`[TimerEffect] Activity detected: ${event.type}`); // Can be too noisy, enable if needed
+        resetInactivityTimer();
+    };
+    events.forEach(event => {
+      document.addEventListener(event, listenerCallback);
+    });
+
+    // Cleanup function
+    return () => {
+      console.log('[TimerEffect] Cleaning up timers and listeners.'); // Log cleanup
+      clearTimeout(inactivityTimer);
+      clearTimeout(expiryTimer);
+      clearTimeout(warningTimer);
+      // Check if interval exists before clearing
+      if(timeInterval) clearInterval(timeInterval); 
+      events.forEach(event => {
+        document.removeEventListener(event, listenerCallback);
+      });
+       console.log('[TimerEffect] Cleanup complete.');
+    };
+  // Ensure all relevant dependencies are included
+  }, [token, refreshToken, tokenExpiryTime, logout, calculateExpiryTime, INACTIVITY_TIMEOUT, WARNING_BEFORE_TIMEOUT]); // Add timeouts constants to dependencies
+
+  // Update initial auth check to also check for refresh token
   useEffect(() => {
     const initialToken = localStorage.getItem('token');
-    if (initialToken && initialToken !== 'undefined' && initialToken !== 'null') {
-      console.log('Found token in localStorage:', initialToken.substring(0, 10) + '...');
+    const initialRefreshToken = localStorage.getItem('refreshToken');
+    if (initialToken && initialToken !== 'undefined' && initialToken !== 'null' &&
+        initialRefreshToken && initialRefreshToken !== 'undefined' && initialRefreshToken !== 'null') {
+      console.log('Found tokens in localStorage');
       setToken(initialToken);
+      setRefreshToken(initialRefreshToken);
     } else {
-      console.log('No valid token found in localStorage');
+      console.log('Valid token pair not found in localStorage');
       setToken(null);
+      setRefreshToken(null);
     }
-    setLoading(false);
   }, []);
 
-  // Check if there's a stored token on mount
+  // Check token validity (logic remains similar, but ensure setLoading(false) is hit)
   useEffect(() => {
     const checkAuth = async () => {
-      if (token) {
+      if (token && refreshToken) { 
         try {
           console.log('Checking stored token validity...');
-          const response = await axios.get(`${API_BASE_URL}/api/system`);
-          console.log('Token is valid, user authenticated');
-          setCurrentUser({
-            id: response.data.user_id,
-            username: 'User' // You might want to fetch user details in a production app
-          });
+          const response = await axios.get(`${API_BASE_URL}/api/me`); 
+          console.log('Token appears valid, user data:', response.data);
+          setCurrentUser(response.data); 
         } catch (err) {
-          console.error('Auth token invalid:', err);
-          console.error('Response data:', err.response?.data);
-          console.error('Status code:', err.response?.status);
-          setToken(null);
+          console.error('Auth token validation failed:', err.response?.status, err.response?.data || err.message);
+          logout();
           setDetailedError({
-            message: 'Token validation failed',
+            message: 'Session invalid or expired', 
             status: err.response?.status,
             data: err.response?.data,
             error: err.message
           });
         }
       } else {
-        console.log('No token found, user not authenticated');
+        console.log('No tokens found, user not authenticated');
+        setCurrentUser(null);
       }
       setLoading(false);
     };
 
     checkAuth();
-  }, [token]);
+  }, [token, refreshToken, logout]);
 
   const register = async (username, email, password) => {
     setLoading(true);
@@ -225,9 +258,7 @@ export const AuthProvider = ({ children }) => {
       });
       console.log('Registration response:', response.data);
       
-      // Check if email confirmation is required
       if (response.data.confirmation_required) {
-        // Don't set token or current user if confirmation is required
         console.log('Email confirmation required for registration');
         return {
           ...response.data,
@@ -235,8 +266,8 @@ export const AuthProvider = ({ children }) => {
         };
       }
       
-      // Normal flow when confirmation is not required
       setToken(response.data.access_token);
+      setRefreshToken(response.data.refresh_token || null);
       setCurrentUser(response.data.user);
       return response.data;
     } catch (err) {
@@ -267,17 +298,17 @@ export const AuthProvider = ({ children }) => {
       });
       console.log('Login successful, response:', response.data);
       
-      if (!response.data.access_token) {
-        throw new Error('No access token received from server');
+      if (!response.data.access_token || !response.data.refresh_token) {
+        console.error('Login response missing access_token or refresh_token');
+        throw new Error('Login failed: Invalid response from server.');
       }
       
-      // Save token and set current user
-      const receivedToken = response.data.access_token;
-      setToken(receivedToken);
+      setToken(response.data.access_token);
+      setRefreshToken(response.data.refresh_token);
       setCurrentUser(response.data.user);
       
-      // Double-check token was set
-      console.log(`Token saved: ${receivedToken.substring(0, 10)}...`);
+      console.log(`Access Token saved: ${response.data.access_token.substring(0, 10)}...`);
+      console.log(`Refresh Token saved: ${response.data.refresh_token.substring(0, 10)}...`);
       
       return response.data;
     } catch (err) {
@@ -299,51 +330,49 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  // Function to extend the session
+  // Ensure extendSession is wrapped in useCallback
   const extendSession = useCallback(async () => {
-    console.log('Extending user session');
+    const currentRefreshToken = localStorage.getItem('refreshToken');
+    if (!currentRefreshToken) {
+      console.error('Cannot refresh session: No refresh token available.');
+      logout();
+      return; 
+    }
+
+    console.log('Attempting to refresh token...');
     setShowExpiryWarning(false);
     
     try {
-      // Option 1: For simple inactivity extension, we just need to hide the warning
-      // and the inactivity timer will be reset by user interaction
-      
-      // Option 2: If you want to actually refresh the token with the server
-      // Uncomment the following code once you implement a token refresh endpoint
-      
-      /*
-      // Call token refresh API
-      const response = await axios.post(`${API_BASE_URL}/api/refresh-token`, {}, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      const response = await axios.post(`${API_BASE_URL}/api/refresh-token`, { 
+        refresh_token: currentRefreshToken 
       });
       
-      if (response.data && response.data.access_token) {
-        // Update token with new one
-        const newToken = response.data.access_token;
-        setToken(newToken);
-        console.log('Token refreshed successfully');
-      }
-      */
-      
-      // For now, we'll simulate extending the token by adding 30 minutes to expiry time
-      // This is just for demonstration - in production, always get a new token from server
-      if (tokenExpiryTime) {
-        const extendedTime = Math.max(tokenExpiryTime, Date.now() + 30 * 60 * 1000);
-        setTokenExpiryTime(extendedTime);
-        console.log(`Session extended until: ${new Date(extendedTime).toLocaleString()}`);
+      if (response.data && response.data.access_token && response.data.refresh_token) {
+        const newAccessToken = response.data.access_token;
+        const newRefreshToken = response.data.refresh_token;
+        
+        setToken(newAccessToken);
+        setRefreshToken(newRefreshToken);
+        
+        const expiryTime = calculateExpiryTime(newAccessToken);
+        setTokenExpiryTime(expiryTime);
+        
+        console.log('Token refreshed successfully.');
+        console.log(`New expiry time: ${new Date(expiryTime).toLocaleString()}`);
+      } else {
+        console.error('Token refresh failed: Invalid response from server.', response.data);
+        logout();
       }
     } catch (error) {
-      console.error('Failed to extend session:', error);
-      // If extension fails, we should at least hide the warning
-      // as user has shown activity
+      console.error('Failed to refresh token:', error.response?.status, error.response?.data || error.message);
+      logout(); 
     }
-  }, [token, tokenExpiryTime]);
+  // Add dependencies for extendSession: logout, calculateExpiryTime, setToken, setRefreshToken, setTokenExpiryTime, setShowExpiryWarning
+  }, [logout, calculateExpiryTime, setToken, setRefreshToken, setTokenExpiryTime, setShowExpiryWarning]); 
 
   const value = {
     token,
-    setToken,
+    refreshToken,
     currentUser,
     loading,
     error,
@@ -351,8 +380,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     register,
-    isAuthenticated: !!token,
-    // Expose session timeout functionality
+    isAuthenticated: !!token && !!refreshToken,
     showExpiryWarning,
     remainingTime,
     extendSession

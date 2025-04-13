@@ -80,103 +80,111 @@ def auth_required(f):
         if request.method == 'OPTIONS':
             return f(*args, **kwargs)
             
-        if use_supabase_auth and supabase.is_available():
-            # Supabase Auth strategy
-            try:
-                auth_header = request.headers.get('Authorization')
-                logger.debug(f"Auth header: {auth_header}")
-                if not auth_header or not auth_header.startswith('Bearer '):
-                    return jsonify({"error": "Missing or invalid authorization header"}), 401
-                
-                token = auth_header.split(' ')[1]
-                # Store the token in Flask's g object for database operations
-                g.user_token = token
-                
-                # Verify with Supabase
-                logger.debug(f"Verifying token with Supabase: {token[:10]}...")
-                user_data = supabase.client.auth.get_user(token)
-                if not user_data or not user_data.user:
-                    return jsonify({"error": "Invalid or expired token"}), 401
-                
-                logger.debug(f"Authenticated user: {user_data.user.email}")
-                
-                # Store user data in g
-                g.current_user = {
-                    "id": user_data.user.id,
-                    "email": user_data.user.email,
-                    # Add any other user data you need
-                }
-                
-                # Check if user exists in the database and create if not
-                from backend.app.models import db, User
-                
-                # First check by ID
-                user = User.query.filter_by(id=user_data.user.id).first()
-                if not user:
-                    # Then check by email - maybe user exists but with different ID
-                    email_user = User.query.filter_by(email=user_data.user.email).first()
+        if use_supabase_auth:
+            # Use Supabase Auth strategy
+            if supabase.is_available():
+                try:
+                    auth_header = request.headers.get('Authorization')
+                    logger.debug(f"Auth header: {auth_header}")
+                    if not auth_header or not auth_header.startswith('Bearer '):
+                        return jsonify({"error": "Missing or invalid authorization header"}), 401
                     
-                    if email_user:
-                        # User exists with this email but different ID - update the ID
-                        logger.info(f"Updating existing user ID to match Supabase: {user_data.user.email}")
-                        try:
-                            email_user.id = uuid.UUID(user_data.user.id)
-                            db.session.commit()
-                            logger.info(f"Updated user ID successfully to: {email_user.id}")
-                            # User now exists with correct ID
-                        except Exception as e:
-                            db.session.rollback()
-                            logger.error(f"Failed to update user ID: {str(e)}")
-                    else:
-                        # No user with this ID or email - try to create new
-                        logger.info(f"Creating new user record for Supabase user: {user_data.user.email}")
+                    token = auth_header.split(' ')[1]
+                    # Store the token in Flask's g object for database operations
+                    g.user_token = token
+                    
+                    # Verify with Supabase
+                    logger.debug(f"Verifying token with Supabase: {token[:10]}...")
+                    user_data = supabase.client.auth.get_user(token)
+                    if not user_data or not user_data.user:
+                        return jsonify({"error": "Invalid or expired token"}), 401
+                    
+                    logger.debug(f"Authenticated user: {user_data.user.email}")
+                    
+                    # Store user data in g
+                    g.current_user = {
+                        "id": user_data.user.id,
+                        "email": user_data.user.email,
+                        # Add any other user data you need
+                    }
+                    
+                    # Check if user exists in the database and create if not
+                    from backend.app.models import db, User
+                    
+                    # First check by ID
+                    user = User.query.filter_by(id=user_data.user.id).first()
+                    if not user:
+                        # Then check by email - maybe user exists but with different ID
+                        email_user = User.query.filter_by(email=user_data.user.email).first()
                         
-                        # Extract username from metadata or use email as fallback
-                        username_base = user_data.user.user_metadata.get('username', user_data.user.email.split('@')[0])
-                        
-                        # Check if username already exists and modify if needed
-                        username = username_base
-                        username_counter = 1
-                        while User.query.filter_by(username=username).first():
-                            username = f"{username_base}{username_counter}"
-                            username_counter += 1
-                        
-                        # Create a new user with a random password (won't be used for auth since we're using Supabase)
-                        import secrets
-                        import string
-                        random_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
-                        
-                        # Create user with Supabase ID as the primary key
-                        new_user = User(
-                            username=username,
-                            email=user_data.user.email,
-                            password=random_password
-                        )
-                        # Set the id explicitly to match the Supabase Auth id
-                        new_user.id = uuid.UUID(user_data.user.id)
-                        
-                        try:
-                            db.session.add(new_user)
-                            db.session.commit()
-                            logger.info(f"Created new user record with ID: {new_user.id} and username: {username}")
-                        except Exception as e:
-                            db.session.rollback()
-                            logger.error(f"Failed to create user record: {str(e)}")
-                            # Continue anyway to prevent login failures
-                
-                return f(*args, **kwargs)
-            except Exception as e:
-                logger.error(f"Supabase auth error: {str(e)}")
-                return jsonify({"error": "Authentication failed"}), 401
+                        if email_user:
+                            # User exists with this email but different ID - update the ID
+                            logger.info(f"Updating existing user ID to match Supabase: {user_data.user.email}")
+                            try:
+                                email_user.id = uuid.UUID(user_data.user.id)
+                                db.session.commit()
+                                logger.info(f"Updated user ID successfully to: {email_user.id}")
+                                # User now exists with correct ID
+                            except Exception as e:
+                                db.session.rollback()
+                                logger.error(f"Failed to update user ID: {str(e)}")
+                        else:
+                            # No user with this ID or email - try to create new
+                            logger.info(f"Creating new user record for Supabase user: {user_data.user.email}")
+                            
+                            # Extract username from metadata or use email as fallback
+                            username_base = user_data.user.user_metadata.get('username', user_data.user.email.split('@')[0])
+                            
+                            # Check if username already exists and modify if needed
+                            username = username_base
+                            username_counter = 1
+                            while User.query.filter_by(username=username).first():
+                                username = f"{username_base}{username_counter}"
+                                username_counter += 1
+                            
+                            # Create a new user with a random password (won't be used for auth since we're using Supabase)
+                            import secrets
+                            import string
+                            random_password = ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(16))
+                            
+                            # Create user with Supabase ID as the primary key
+                            new_user = User(
+                                username=username,
+                                email=user_data.user.email,
+                                password=random_password
+                            )
+                            # Set the id explicitly to match the Supabase Auth id
+                            new_user.id = uuid.UUID(user_data.user.id)
+                            
+                            try:
+                                db.session.add(new_user)
+                                db.session.commit()
+                                logger.info(f"Created new user record with ID: {new_user.id} and username: {username}")
+                            except Exception as e:
+                                db.session.rollback()
+                                logger.error(f"Failed to create user record: {str(e)}")
+                                # Continue anyway to prevent login failures
+                    
+                    return f(*args, **kwargs)
+                except Exception as e:
+                    logger.error(f"Supabase auth error: {str(e)}")
+                    # Distinguish between invalid token and other errors if possible
+                    if "invalid token" in str(e).lower():
+                         return jsonify({"error": "Invalid or expired token"}), 401
+                    return jsonify({"error": "Authentication failed"}), 401 # Or potentially 500 for unexpected errors
+            else:
+                # Supabase is configured but not available
+                logger.error("Authentication required but Supabase auth is configured and unavailable.")
+                return jsonify({"error": "Authentication service temporarily unavailable"}), 503
         else:
-            # JWT strategy
+            # JWT strategy (only if use_supabase_auth is False)
             try:
                 verify_jwt_in_request()
                 user_id = get_jwt_identity()
                 
-                # You may want to load the user from the database here
-                # and store it in g.current_user
-                g.current_user = {"id": user_id}
+                # Load user from DB if needed
+                # g.current_user = User.query.get(user_id) # Example
+                g.current_user = {"id": user_id} # Keep simple for now
                 
                 return f(*args, **kwargs)
             except Exception as e:
@@ -185,7 +193,7 @@ def auth_required(f):
     
     return decorated
 
-def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, Any], str]:
+def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, Any], str, Optional[str]]:
     """
     Register a new user using the appropriate authentication system.
     
@@ -195,7 +203,7 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
         password: Password
         
     Returns:
-        Tuple[Dict[str, Any], str]: User data and access token
+        Tuple[Dict[str, Any], str, Optional[str]]: User data, access token, and refresh token (or None)
     """
     # Check if we should use Supabase or JWT
     actually_use_supabase = use_supabase_auth and supabase.is_available()
@@ -224,18 +232,18 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
                 "username": username
             }
             
-            # Check if session is available (might be None if email confirmation is required)
+            # Extract tokens if session exists
             access_token = ""
+            refresh_token = None
             if signup_data.session:
                 access_token = signup_data.session.access_token
-                logger.debug("Session and access token available after registration")
+                refresh_token = signup_data.session.refresh_token # Get refresh token
+                logger.debug("Session and tokens available after registration")
             else:
                 logger.warning("No session available after registration - email confirmation may be required")
-                # For Supabase with email confirmation, we don't get a session immediately
-                # Return a special message to the frontend
                 user_data["confirmation_required"] = True
             
-            return user_data, access_token
+            return user_data, access_token, refresh_token # Return all three
         except Exception as e:
             logger.error(f"Supabase registration error: {str(e)}")
             raise
@@ -261,9 +269,9 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
         # Create access token
         access_token = create_access_token(identity=str(user.id))
         
-        return user.to_dict(), access_token
+        return user.to_dict(), access_token, None # Return None for refresh token in JWT mode
 
-def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str]:
+def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str, Optional[str]]:
     """
     Log in a user using the appropriate authentication system.
     
@@ -272,7 +280,7 @@ def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str]:
         password: Password
         
     Returns:
-        Tuple[Dict[str, Any], str]: User data and access token
+        Tuple[Dict[str, Any], str, Optional[str]]: User data, access token, and refresh token (or None)
     """
     logger.debug(f"Login attempt for user: {username}, auth mode: {'Supabase' if use_supabase_auth else 'JWT'}")
     
@@ -312,8 +320,12 @@ def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str]:
             
             logger.debug(f"Login response: {login_data}")
             
-            if not login_data.user:
-                raise ValueError("Login failed")
+            # Check for user and session
+            if not login_data.user or not login_data.session:
+                # Handle cases like pending email confirmation after failed login attempts
+                # Or just general login failure
+                logger.warning(f"Supabase login failed or session missing for {user_email}")
+                raise ValueError("Invalid email or password, or account requires confirmation.")
                 
             user_data = {
                 "id": login_data.user.id,
@@ -322,10 +334,14 @@ def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str]:
             }
             
             logger.info(f"Login successful for user: {user_data['username']} ({user_data['email']})")
-            return user_data, login_data.session.access_token
+            # Return user_data, access_token, refresh_token
+            return user_data, login_data.session.access_token, login_data.session.refresh_token
         except Exception as e:
             logger.error(f"Supabase login error: {str(e)}")
-            raise
+            # Add specific check for invalid login credentials from Supabase/GoTrue
+            if "invalid login credentials" in str(e).lower():
+                raise ValueError("Invalid email or password")
+            raise # Re-raise other exceptions
     else:
         # Use regular database models and JWT
         from backend.app.models import User
@@ -340,4 +356,4 @@ def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str]:
         # Create access token
         access_token = create_access_token(identity=str(user.id))
         
-        return user.to_dict(), access_token 
+        return user.to_dict(), access_token, None # Return None for refresh token in JWT mode 

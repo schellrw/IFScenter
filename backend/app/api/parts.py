@@ -203,12 +203,26 @@ def delete_part(part_id):
         JSON response with success message.
     """
     try:
-        # Use the database adapter
+        # First, get the part to check its name
+        part_to_delete = current_app.db_adapter.get_by_id(TABLE_NAME, Part, part_id)
+        
+        if not part_to_delete:
+            return jsonify({"error": "Part not found"}), 404
+
+        # Check if the part name is 'Self'
+        if part_to_delete.get('name') == 'Self':
+            logger.warning(f"Attempt to delete the core 'Self' part (ID: {part_id}) was blocked.")
+            return jsonify({"error": "The core 'Self' part cannot be deleted."}), 403 # Forbidden
+
+        # If not 'Self', proceed with deletion using the database adapter
         success = current_app.db_adapter.delete(TABLE_NAME, Part, part_id)
         
         if not success:
-            return jsonify({"error": "Part not found"}), 404
+            # This could happen if the part was deleted between the get and delete calls
+            logger.error(f"Deletion failed for part {part_id} after initial check.")
+            return jsonify({"error": "Part deletion failed unexpectedly."}), 500
             
+        logger.info(f"Part {part_id} deleted successfully.")
         return jsonify({"message": "Part deleted successfully"})
     except Exception as e:
         logger.error(f"Error deleting part: {str(e)}")
