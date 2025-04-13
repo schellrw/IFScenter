@@ -75,9 +75,9 @@ const Navigation = () => {
   
   const navItems = currentUser ? [
     { label: 'Dashboard', path: '/' },
-    { label: 'Guided Sessions', path: '/sessions' },
     { label: 'Parts', path: '/parts' },
     { label: 'System Map', path: '/system-map' },
+    { label: 'Guided Sessions', path: '/sessions' },
     { label: 'Journal', path: '/journal' },
   ] : [];
   
