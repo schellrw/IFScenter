@@ -6,6 +6,7 @@ SQLAlchemy and Supabase backends.
 import os
 import logging
 import json
+import ast
 from typing import Dict, List, Any, Optional, Union
 from uuid import UUID
 
@@ -29,6 +30,9 @@ class DBAdapter:
         self.db = sqlalchemy_db
         self.session = sqlalchemy_db.session if sqlalchemy_db else None
         self.using_supabase = use_supabase_db
+        
+        # Log the Supabase usage status on initialization
+        logger.info(f"DBAdapter initialized. Using Supabase: {self.using_supabase}")
         
         if self.using_supabase and not supabase.is_available():
             logger.error("Supabase client not available but SUPABASE_USE_FOR_DB is True")
@@ -110,7 +114,25 @@ class DBAdapter:
                     # Success
                     response_data = response.json()
                     if response_data and len(response_data) > 0:
-                        return response_data[0]
+                        record = response_data[0]
+                        
+                        # Post-process list-like fields that might be strings
+                        list_fields = ['feelings', 'beliefs', 'triggers', 'needs']
+                        for field in list_fields:
+                            if field in record and isinstance(record[field], str):
+                                try:
+                                    parsed_value = ast.literal_eval(record[field])
+                                    if isinstance(parsed_value, list):
+                                        record[field] = parsed_value
+                                    else:
+                                        logger.warning(f"Parsed '{field}' for record {record.get('id')} but result was not a list: {parsed_value}. Keeping original string.")
+                                except (ValueError, SyntaxError, TypeError) as parse_error:
+                                    logger.warning(f"Could not parse string field '{field}' for record {record.get('id')}: {record[field]}. Error: {parse_error}. Setting to empty list.")
+                                    record[field] = []
+                            elif field in record and record[field] is None:
+                                record[field] = []
+                                
+                        return record # Return the processed record
                     return None
                 
                 # Log error details
@@ -128,6 +150,8 @@ class DBAdapter:
     def get_all(self, table: str, model_class, filter_dict: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         """Get all records, optionally filtered."""
         try:
+            # Log Supabase usage status within the method
+            logger.debug(f"DBAdapter.get_all called for table '{table}'. Using Supabase: {self.using_supabase}")
             if self.using_supabase:
                 # Get authentication headers
                 headers = self._get_auth_headers()
@@ -163,7 +187,32 @@ class DBAdapter:
                 
                 if response.status_code >= 200 and response.status_code < 300:
                     # Success
-                    return response.json()
+                    response_data = response.json()
+                    
+                    # Post-process list-like fields that might be strings
+                    list_fields = ['feelings', 'beliefs', 'triggers', 'needs']
+                    processed_data = []
+                    for record in response_data:
+                        for field in list_fields:
+                            if field in record and isinstance(record[field], str):
+                                try:
+                                    # Attempt to parse the string as a Python literal (handles lists)
+                                    parsed_value = ast.literal_eval(record[field])
+                                    if isinstance(parsed_value, list):
+                                        record[field] = parsed_value
+                                    else:
+                                        # If not a list after parsing, keep original or set default
+                                        logger.warning(f"Parsed '{field}' for record {record.get('id')} but result was not a list: {parsed_value}. Keeping original string.")
+                                except (ValueError, SyntaxError, TypeError) as parse_error:
+                                    # Handle cases where the string is not a valid list literal
+                                    logger.warning(f"Could not parse string field '{field}' for record {record.get('id')}: {record[field]}. Error: {parse_error}. Setting to empty list.")
+                                    record[field] = []
+                            elif field in record and record[field] is None:
+                                # Ensure None values become empty lists for consistency on frontend
+                                record[field] = []
+                        processed_data.append(record)
+                        
+                    return processed_data # Return the processed data
                 
                 # Log error details
                 logger.error(f"Supabase REST API error: {response.status_code} - {response.text}")
@@ -493,7 +542,7 @@ class DBAdapter:
                 from sqlalchemy import func
                 
                 # Explicit column reference for count
-                query = self.db.session.query(func.count(model_class.__table__.columns.id))
+                query = self.db.session.query(self.db.func.count(model_class.__table__.columns.id))
                 
                 # Apply filters
                 if filter_dict:

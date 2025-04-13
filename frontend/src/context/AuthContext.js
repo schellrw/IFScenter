@@ -116,9 +116,8 @@ export const AuthProvider = ({ children }) => {
     };
   }, [logout]); // Dependency
 
-  // Inactivity timer and token expiration timer with added logging
+  // Inactivity timer and token expiration timer with added logging AND THROTTLING
   useEffect(() => {
-    // If no token, do nothing related to timers
     if (!token || !refreshToken) {
       console.log('[TimerEffect] Skipping effect: No tokens.');
       return; 
@@ -127,22 +126,32 @@ export const AuthProvider = ({ children }) => {
     let inactivityTimer;
     let expiryTimer;
     let warningTimer;
-    let timeInterval; // Declare timeInterval here
+    let timeInterval; 
+    let throttleTimeout = null; // Variable to hold throttle state
+    const THROTTLE_DELAY = 5000; // Throttle calls to once every 5 seconds
 
-    console.log('[TimerEffect] Running effect, token exists.'); // Log effect run
+    console.log('[TimerEffect] Running effect, token exists.');
 
     const resetInactivityTimer = () => {
       clearTimeout(inactivityTimer);
-      // console.log('[TimerEffect] Inactivity timer reset.'); // Log reset - Can be too noisy
-
       inactivityTimer = setTimeout(() => {
-        console.error('[TimerEffect] User inactive for too long, logging out!'); // Log logout trigger
+        console.error('[TimerEffect] User inactive for too long, logging out!');
         logout();
-      }, INACTIVITY_TIMEOUT); // Uses the 3-minute value
-       console.log(`[TimerEffect] New inactivity timer set for ${INACTIVITY_TIMEOUT/1000}s`); // Log new timer set
+      }, INACTIVITY_TIMEOUT); 
+      console.log(`[TimerEffect] New inactivity timer set for ${INACTIVITY_TIMEOUT / 1000}s`);
     };
 
-    // Set expiry timer logic (unchanged for now)
+    // Throttled version of the reset function
+    const throttledReset = () => {
+        if (!throttleTimeout) {
+            resetInactivityTimer();
+            throttleTimeout = setTimeout(() => {
+                throttleTimeout = null; // Clear the throttle state after delay
+            }, THROTTLE_DELAY);
+        } 
+    };
+
+    // Set expiry timer logic (unchanged)
     if (tokenExpiryTime) {
        console.log('[TimerEffect] Setting up expiry/warning timers.');
        const timeUntilExpiry = Math.max(0, tokenExpiryTime - Date.now());
@@ -157,7 +166,6 @@ export const AuthProvider = ({ children }) => {
          logout();
        }, timeUntilExpiry);
 
-       // Assign to declared variable
        timeInterval = setInterval(() => { 
          const remaining = Math.max(0, tokenExpiryTime - Date.now());
          setRemainingTime(remaining);
@@ -169,16 +177,15 @@ export const AuthProvider = ({ children }) => {
        console.log('[TimerEffect] No tokenExpiryTime, skipping expiry timers.');
     }
 
-    // Set initial inactivity timer
+    // Set initial inactivity timer (no throttle needed here)
     console.log('[TimerEffect] Setting initial inactivity timer.');
     resetInactivityTimer();
 
-    // Event listeners to reset inactivity timer
+    // Event listeners use the throttled function
     const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
     console.log('[TimerEffect] Adding event listeners:', events);
-    const listenerCallback = (event) => { // Named callback for logging
-        // console.log(`[TimerEffect] Activity detected: ${event.type}`); // Can be too noisy, enable if needed
-        resetInactivityTimer();
+    const listenerCallback = (event) => {
+      throttledReset(); // Call the throttled version
     };
     events.forEach(event => {
       document.addEventListener(event, listenerCallback);
@@ -186,19 +193,18 @@ export const AuthProvider = ({ children }) => {
 
     // Cleanup function
     return () => {
-      console.log('[TimerEffect] Cleaning up timers and listeners.'); // Log cleanup
+      console.log('[TimerEffect] Cleaning up timers and listeners.');
       clearTimeout(inactivityTimer);
       clearTimeout(expiryTimer);
       clearTimeout(warningTimer);
-      // Check if interval exists before clearing
       if(timeInterval) clearInterval(timeInterval); 
+      clearTimeout(throttleTimeout); // Clear throttle timeout on cleanup too
       events.forEach(event => {
         document.removeEventListener(event, listenerCallback);
       });
-       console.log('[TimerEffect] Cleanup complete.');
+      console.log('[TimerEffect] Cleanup complete.');
     };
-  // Ensure all relevant dependencies are included
-  }, [token, refreshToken, tokenExpiryTime, logout, calculateExpiryTime, INACTIVITY_TIMEOUT, WARNING_BEFORE_TIMEOUT]); // Add timeouts constants to dependencies
+  }, [token, refreshToken, tokenExpiryTime, logout, calculateExpiryTime]);
 
   // Update initial auth check to also check for refresh token
   useEffect(() => {
@@ -380,7 +386,7 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     register,
-    isAuthenticated: !!token && !!refreshToken,
+    isAuthenticated: !!token && !!refreshToken && !!currentUser,
     showExpiryWarning,
     remainingTime,
     extendSession
