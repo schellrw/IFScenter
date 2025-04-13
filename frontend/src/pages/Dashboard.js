@@ -813,10 +813,6 @@ const Dashboard = () => {
                 </Box>
               ) : recentActivity && recentActivity.length > 0 ? (
                 <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
-                  {/* Debug - Log recentActivity state before rendering */}
-                  {console.log("Rendering recentActivity list with", recentActivity.length, "items:", 
-                    recentActivity.map(a => `${a.title} (${a.type})`))}
-                  
                   {recentActivity.map((activity, index) => (
                     <React.Fragment key={activity.id || `activity-${index}`}>
                       {index > 0 && <Divider variant="inset" component="li" />}
