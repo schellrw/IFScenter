@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { useIFS } from '../context/IFSContext';
 import {
@@ -23,13 +23,24 @@ import HistoryIcon from '@mui/icons-material/History';
 import { ROLE_OPTIONS } from '../constants';
 import GenerateVectorsButton from '../components/GenerateVectorsButton';
 
-// const ROLE_OPTIONS = [
-//   { value: 'protector', label: 'Protector' },
-//   { value: 'exile', label: 'Exile' },
-//   { value: 'manager', label: 'Manager' },
-//   { value: 'firefighter', label: 'Firefighter' },
-//   { value: 'self', label: 'Self' },
-// ];
+// Helper function to safely parse list-like fields
+const parseListField = (fieldValue) => {
+  if (Array.isArray(fieldValue)) {
+    return fieldValue; // Already an array
+  }
+  if (typeof fieldValue === 'string') {
+    try {
+      // Attempt to parse the string
+      // Replace single quotes with double quotes for valid JSON before parsing
+      const parsed = JSON.parse(fieldValue.replace(/'/g, '"')); 
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.warn('Failed to parse list field:', fieldValue, e);
+      return []; // Return empty array on failure
+    }
+  }
+  return []; // Default to empty array
+};
 
 const PartDetailsPage = () => {
   const { partId } = useParams();
@@ -42,7 +53,31 @@ const PartDetailsPage = () => {
   const [error, setError] = useState('');
 
   const part = system?.parts[partId];
-  const [formData, setFormData] = useState(part || {});
+
+  // Memoize parsed fields to avoid re-parsing on every render
+  const parsedFeelings = useMemo(() => parseListField(part?.feelings), [part?.feelings]);
+  const parsedBeliefs = useMemo(() => parseListField(part?.beliefs), [part?.beliefs]);
+  const parsedTriggers = useMemo(() => parseListField(part?.triggers), [part?.triggers]);
+  const parsedNeeds = useMemo(() => parseListField(part?.needs), [part?.needs]);
+
+  const [formData, setFormData] = useState({});
+
+  // Effect to update formData when part data changes (including after initial load)
+  // or when editing starts/stops, ensuring parsed values are used.
+  React.useEffect(() => {
+    if (part) {
+        setFormData({
+            ...part,
+            feelings: parsedFeelings,
+            beliefs: parsedBeliefs,
+            triggers: parsedTriggers,
+            needs: parsedNeeds,
+        });
+    } else {
+        // Handle case where part becomes undefined (e.g., after deletion?)
+        setFormData({});
+    }
+  }, [part, parsedFeelings, parsedBeliefs, parsedTriggers, parsedNeeds]); // Depend on part and parsed values
 
   // Get the backLink from URL params
   const backLink = searchParams.get('backLink');
@@ -220,7 +255,7 @@ const PartDetailsPage = () => {
 
               <FeelingsInput
                 label="Associated Feelings"
-                value={formData.feelings}
+                value={formData.feelings || []}
                 onChange={(value) => handleChange('feelings', value)}
               />
 
@@ -266,33 +301,39 @@ const PartDetailsPage = () => {
 
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">Feelings</Typography>
-                <Typography>{part.feelings?.join(', ') || 'No feelings specified'}</Typography>
+                <Typography>{parsedFeelings.join(', ') || 'No feelings specified'}</Typography>
               </Box>
 
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">Core Beliefs</Typography>
                 <ul>
-                  {part.beliefs?.map((belief, index) => (
-                    <li key={index}>{belief}</li>
-                  )) || <Typography>No beliefs specified</Typography>}
+                  {parsedBeliefs.length > 0 ? (
+                     parsedBeliefs.map((belief, index) => <li key={index}>{belief}</li>)
+                   ) : (
+                     <Typography component="li" sx={{ listStyle: 'none' }}>No beliefs specified</Typography>
+                   )}
                 </ul>
               </Box>
 
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">Triggers</Typography>
                 <ul>
-                  {part.triggers?.map((trigger, index) => (
-                    <li key={index}>{trigger}</li>
-                  )) || <Typography>No triggers specified</Typography>}
+                   {parsedTriggers.length > 0 ? (
+                     parsedTriggers.map((trigger, index) => <li key={index}>{trigger}</li>)
+                   ) : (
+                     <Typography component="li" sx={{ listStyle: 'none' }}>No triggers specified</Typography>
+                   )}
                 </ul>
               </Box>
 
               <Box>
                 <Typography variant="subtitle2" color="text.secondary">Needs</Typography>
-                <ul>
-                  {part.needs?.map((need, index) => (
-                    <li key={index}>{need}</li>
-                  )) || <Typography>No needs specified</Typography>}
+                 <ul>
+                   {parsedNeeds.length > 0 ? (
+                      parsedNeeds.map((need, index) => <li key={index}>{need}</li>)
+                   ) : (
+                      <Typography component="li" sx={{ listStyle: 'none' }}>No needs specified</Typography>
+                   )}
                 </ul>
               </Box>
             </Stack>
