@@ -204,7 +204,7 @@ export const AuthProvider = ({ children }) => {
       });
       console.log('[TimerEffect] Cleanup complete.');
     };
-  }, [token, refreshToken, tokenExpiryTime, logout, calculateExpiryTime, INACTIVITY_TIMEOUT, WARNING_BEFORE_TIMEOUT]);
+  }, [token, refreshToken, tokenExpiryTime, logout, calculateExpiryTime]);
 
   // Update initial auth check to also check for refresh token
   useEffect(() => {

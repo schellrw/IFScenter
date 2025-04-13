@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
-  Container, Typography, Box, Grid, Paper, Alert, List, ListItem,
-  ListItemText, ListItemIcon, Divider, Button, Chip, CircularProgress,
+  Container, Typography, Box, Grid, Paper, List, ListItem,
+  ListItemText, ListItemIcon, Divider, Button, CircularProgress,
   Card, CardContent, CardActions, IconButton, Tooltip
 } from '@mui/material';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import EditNoteIcon from '@mui/icons-material/EditNote';
 import PersonAddIcon from '@mui/icons-material/PersonAdd';
 import CompareArrowsIcon from '@mui/icons-material/CompareArrows';
@@ -20,22 +20,6 @@ import { format, formatDistanceToNow, parseISO, isValid } from 'date-fns';
 import { useIFS } from '../context/IFSContext';
 import { REFLECTIVE_PROMPTS } from '../constants';
 import { PartsDistributionChart, EmotionsChart, MiniSystemMap } from '../components';
-import axios from 'axios';
-
-// Configure API base URL - can be changed via environment variable later
-// Clean up the API_BASE_URL to handle any potential quotation marks and ensure proper URL formation
-let API_BASE_URL;
-if (process.env.REACT_APP_API_URL === undefined || process.env.REACT_APP_API_URL === null) {
-  // If not defined, use a default based on environment
-  API_BASE_URL = process.env.NODE_ENV === 'production' ? '' : 'http://localhost:5000';
-} else {
-  // Otherwise use the provided value
-  API_BASE_URL = process.env.REACT_APP_API_URL;
-}
-// Remove any quotation marks that might have been included in the environment variable
-API_BASE_URL = API_BASE_URL.replace(/["']/g, '');
-// Ensure API_BASE_URL doesn't end with a slash
-API_BASE_URL = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
 
 // Add a debug flag at the top of the file, after imports
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -134,21 +118,13 @@ const getStableTimestamp = (id, rawTimestamp) => {
   return timestamp;
 };
 
-// Preload date-fns format to prevent format changes between renders
-const TIME_FORMAT = 'PPP p';
-const formatDateTime = (date) => format(date, TIME_FORMAT);
-
 const Dashboard = () => {
-  const { system, loading: ifsLoading, error: ifsError, journals, getJournals, isAuthenticated } = useIFS();
-  const [connectionStatus, setConnectionStatus] = useState(null);
-  const [error, setError] = useState(null);
+  const { system, loading: ifsLoading, journals, isAuthenticated } = useIFS();
   const [recentActivity, setRecentActivity] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [currentPrompt, setCurrentPrompt] = useState('');
-  const [chartData, setChartData] = useState({ partCounts: {}, emotionCounts: {} });
   const navigate = useNavigate();
-  const location = useLocation();
 
   // Add state for tracking previous part data to detect real changes
   const [previousPartsState, setPreviousPartsState] = useState({});
@@ -225,21 +201,6 @@ const Dashboard = () => {
       setCurrentPrompt(newPrompt);
       localStorage.setItem('currentJournalPrompt', newPrompt);
     }
-  }, []);
-
-  useEffect(() => {
-    const testConnection = async () => {
-      try {
-        const response = await axios.get(`${API_BASE_URL}/api/test`);
-        setConnectionStatus(response.data.message);
-        setError(null);
-      } catch (err) {
-        setError('Failed to connect to backend server');
-        console.error('Connection error:', err);
-      }
-    };
-
-    testConnection();
   }, []);
 
   // Effect to fetch recent activity and generate recommendations
@@ -471,27 +432,6 @@ const Dashboard = () => {
             setRecommendations(generatedRecommendations);
           }
 
-          // Extract data for charts
-          const partCounts = {};
-          const emotionCounts = {};
-          parts.forEach(part => {
-            // Count parts by role
-            const role = part.role || 'Unspecified';
-            partCounts[role] = (partCounts[role] || 0) + 1;
-
-            // Count emotions - Ensure feelings is an array before processing
-            const feelings = Array.isArray(part.feelings) ? part.feelings : [];
-            feelings.forEach(feeling => {
-              const normalizedFeeling = feeling.trim().toLowerCase();
-              if (normalizedFeeling) { // Avoid counting empty strings
-                emotionCounts[normalizedFeeling] = (emotionCounts[normalizedFeeling] || 0) + 1;
-              }
-            });
-          });
-
-          // Update state for charts (moved after parts loop)
-          setChartData({ partCounts, emotionCounts });
-          
           if (isMounted) {
             setLoadingActivity(false);
           }
@@ -657,7 +597,6 @@ const Dashboard = () => {
       }
     };
     
-    // Fix: Only check for system existence since it only exists for authenticated users
     if (system) {
       console.log("Starting to fetch dashboard data - system detected");
       fetchData();
@@ -668,19 +607,18 @@ const Dashboard = () => {
     return () => {
       isMounted = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [system, journals, lastUpdateCheck]);
+  }, [system, journals, lastUpdateCheck, isAuthenticated, currentPrompt, previousPartsState]);
 
   // Memoize the parts and relationships arrays for the MiniSystemMap
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const partsForMap = useMemo(() => {
-    // Ensure system and system.parts exist before calling Object.values
     return system && system.parts ? Object.values(system.parts) : [];
-  }, [system?.parts]); // Dependency is system.parts itself
+  }, [system?.parts]);
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const relationshipsForMap = useMemo(() => {
-    // Ensure system and system.relationships exist
     return system && system.relationships ? Object.values(system.relationships) : [];
-  }, [system?.relationships]); // Dependency is system.relationships itself
+  }, [system?.relationships]);
 
   const handleActivityClick = (type, id) => {
     if (type === 'journal') {
@@ -1055,13 +993,6 @@ const Dashboard = () => {
             </Paper>
           </Grid>
         </Grid>
-
-        {/* Connection Status and Errors */}
-        {error && (
-          <Alert severity="error" sx={{ mt: 2 }}>
-            {error}
-          </Alert>
-        )}
       </Box>
     </Container>
   );
