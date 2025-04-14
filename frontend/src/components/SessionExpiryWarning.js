@@ -46,8 +46,8 @@ const SessionExpiryWarning = () => {
       </DialogTitle>
       <DialogContent>
         <DialogContentText id="session-expiry-description">
-          Your session is about to expire due to inactivity. 
-          You will be logged out in:
+          Your session is about to expire. 
+          You will be logged out automatically in:
         </DialogContentText>
         <Box sx={{ mt: 2, mb: 1 }}>
           <Typography variant="h4" align="center">
