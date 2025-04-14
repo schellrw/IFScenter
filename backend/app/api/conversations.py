@@ -26,6 +26,8 @@ except ImportError as e:
     logging.getLogger(__name__).error(f"Error importing models: {e}. API endpoints may fail.")
 
 from ..utils.auth_adapter import auth_required
+# Import the keyword generation utility
+from ..utils.keywords import generate_keywords
 
 # Configure logging first
 logger = logging.getLogger(__name__)
@@ -307,18 +309,54 @@ def add_session_message(session_id):
 
         user_message = current_app.db_adapter.create(SESSION_MESSAGE_TABLE, SessionMessage, user_message_data)
         if not user_message:
-             # If message creation fails, we probably shouldn't proceed to LLM call
+             # If message creation fails, we probably shouldn't proceed
              return jsonify({"error": "Failed to save user message"}), 500
+
+        # --- Attempt to generate topic if not already set ---
+        # Refetch session data *after* potentially creating it to get the latest state including ID
+        # Or assume 'session' dict fetched earlier is sufficient if adapter updates it implicitly
+        # Re-fetch for safety:
+        current_session_state = current_app.db_adapter.get_by_id(GUIDED_SESSION_TABLE, GuidedSession, session_id)
+        if current_session_state and not current_session_state.get('topic'):
+            logger.debug(f"Session {session_id} has no topic, attempting generation.")
+            # Fetch message history needed for topic generation (and later for LLM)
+            history_filter = {'session_id': session_id}
+            message_history = current_app.db_adapter.get_all(SESSION_MESSAGE_TABLE, SessionMessage, history_filter)
+            message_history.sort(key=lambda x: x.get('timestamp', '')) # Ensure order
+
+            MIN_MESSAGES_FOR_TOPIC = 3
+            if len(message_history) >= MIN_MESSAGES_FOR_TOPIC:
+                logger.debug(f"Session {session_id} meets message threshold ({len(message_history)} >= {MIN_MESSAGES_FOR_TOPIC}).")
+                message_contents = [msg.get('content', '') for msg in message_history]
+                try:
+                    generated_topic = generate_keywords(message_contents)
+                    if generated_topic:
+                        logger.info(f"Generated topic for session {session_id}: '{generated_topic}'")
+                        # Update the session with the new topic
+                        update_data = {'topic': generated_topic}
+                        updated = current_app.db_adapter.update(
+                            GUIDED_SESSION_TABLE, GuidedSession, session_id, update_data
+                        )
+                        if not updated:
+                            logger.warning(f"Failed to save generated topic for session {session_id}")
+                        # No need to update current_session_state dict here unless needed later *before* LLM call
+                    else:
+                        logger.debug(f"Keyword generation returned None for session {session_id}. Insufficient unique words?")
+                except Exception as topic_err:
+                    logger.error(f"Error generating topic keywords for session {session_id}: {topic_err}", exc_info=True)
+            else:
+                logger.debug(f"Session {session_id} does not meet message threshold for topic generation ({len(message_history)} < {MIN_MESSAGES_FOR_TOPIC}).")
 
         # --- Generate and store guide response --- (Only if LLM is available)
         guide_message = None
         if LLM_AVAILABLE:
             try:
                 # Fetch necessary context for the guide prompt
-                # 1. Get current message history (including the one just added)
-                history_filter = {'session_id': session_id}
-                message_history = current_app.db_adapter.get_all(SESSION_MESSAGE_TABLE, SessionMessage, history_filter)
-                message_history.sort(key=lambda x: x.get('timestamp', '')) # Ensure order
+                # If message_history wasn't fetched for topic generation, fetch it now.
+                if 'message_history' not in locals(): # Check if it was already fetched
+                    history_filter = {'session_id': session_id}
+                    message_history = current_app.db_adapter.get_all(SESSION_MESSAGE_TABLE, SessionMessage, history_filter)
+                    message_history.sort(key=lambda x: x.get('timestamp', '')) # Ensure order
 
                 # 2. Get all parts for the system
                 system_id = session.get('system_id')

@@ -272,7 +272,11 @@ const GuidedSessionsPage = () => {
                         </Avatar>
                       </ListItemAvatar>
                       <ListItemText
-                        primary={session.title || `Session started ${formatDate(session.created_at)}`}
+                        primary={
+                          session.topic 
+                          ? session.topic 
+                          : (session.title || `Session started ${formatDate(session.created_at)}`)
+                        }
                         secondary={
                           <>
                             <Typography

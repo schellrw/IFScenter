@@ -28,6 +28,7 @@ class GuidedSession(db.Model):
     system_id = Column(UUID(as_uuid=True), ForeignKey('ifs_systems.id', ondelete='CASCADE'), nullable=False)
     title = Column(Text, nullable=True)
     summary = Column(Text, nullable=True)
+    topic = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=sql_func.now())
     updated_at = Column(DateTime(timezone=True), server_default=sql_func.now(), onupdate=sql_func.now())
     status = Column(String, default='active') # e.g., 'active', 'archived'
@@ -51,6 +52,7 @@ class GuidedSession(db.Model):
             "system_id": str(self.system_id),
             "title": self.title,
             "summary": self.summary,
+            "topic": self.topic,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
             "status": self.status,

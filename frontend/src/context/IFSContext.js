@@ -412,6 +412,8 @@ export const IFSProvider = ({ children }) => {
     loading,
     error,
     journals,
+    isAuthenticated,
+    localToken,
     fetchSystem,
     addPart,
     updatePart,
