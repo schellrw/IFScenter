@@ -27,10 +27,11 @@ export const COMMON_EMOTIONS = [
   { id: 'compassion', label: 'Compassion', color: '#dda0dd' }
 ];
 
+// Reordered and renamed based on discussion
 export const ROLE_OPTIONS = [
-  { value: 'protector', label: 'Protector' },
-  { value: 'exile', label: 'Exile' },
   { value: 'manager', label: 'Manager' },
   { value: 'firefighter', label: 'Firefighter' },
-  { value: 'self', label: 'Self' },
+  { value: 'exile', label: 'Exile' },
+  { value: 'protector', label: 'Protector-Other' }, // Renamed, kept value 'protector'
+  // { value: 'self', label: 'Self' }, // Removed Self
 ]; 
