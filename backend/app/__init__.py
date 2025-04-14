@@ -103,32 +103,6 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         "supports_credentials": True
     }})
     
-    @app.after_request
-    def after_request(response):
-        """Add CORS headers to every response."""
-        origin = request.headers.get('Origin')
-        
-        # Check if origin is allowed
-        allowed_origins = []
-        if flask_env == 'production':
-            allowed_origins = [netlify_domain]
-        else:
-            allowed_origins = local_domains
-            
-        # Add any additional origins from environment
-        if os.environ.get('CORS_ORIGINS'):
-            for origin_entry in os.environ.get('CORS_ORIGINS').split(','):
-                if origin_entry.strip() and origin_entry.strip() not in allowed_origins:
-                    allowed_origins.append(origin_entry.strip())
-        
-        # If origin matches allowed domains, set the header
-        if origin in allowed_origins:
-            response.headers.add('Access-Control-Allow-Origin', origin)
-            response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With')
-            response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-            response.headers.add('Access-Control-Allow-Credentials', 'true')
-        return response
-    
     @app.route('/health')
     def health_check():
         """Simple health check endpoint."""

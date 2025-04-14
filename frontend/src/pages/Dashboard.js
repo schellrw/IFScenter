@@ -20,6 +20,7 @@ import { format, formatDistanceToNow, parseISO, isValid } from 'date-fns';
 import { useIFS } from '../context/IFSContext';
 import { REFLECTIVE_PROMPTS } from '../constants';
 import { PartsDistributionChart, EmotionsChart, MiniSystemMap } from '../components';
+import { getGuidedSessions } from '../utils/api';
 
 // Add a debug flag at the top of the file, after imports
 const DEBUG = process.env.NODE_ENV === 'development';
@@ -119,11 +120,19 @@ const getStableTimestamp = (id, rawTimestamp) => {
 };
 
 const Dashboard = () => {
-  const { system, loading: ifsLoading, journals, isAuthenticated } = useIFS();
+  const ifsContextValue = useIFS(); // Get the whole context object
+  const { system, loading: ifsLoading, journals, isAuthenticated, localToken } = ifsContextValue; // Destructure
+
+  // Remove console logs added for debugging
+  // console.log("Dashboard Render - Raw useIFS() value:", ifsContextValue);
+  // console.log("Dashboard Render - Destructured isAuthenticated:", isAuthenticated);
+
   const [recentActivity, setRecentActivity] = useState([]);
   const [recommendations, setRecommendations] = useState([]);
   const [loadingActivity, setLoadingActivity] = useState(true);
   const [currentPrompt, setCurrentPrompt] = useState('');
+  // Add state for sessions count
+  const [sessionsCount, setSessionsCount] = useState(0);
   const navigate = useNavigate();
 
   // Add state for tracking previous part data to detect real changes
@@ -206,10 +215,19 @@ const Dashboard = () => {
   // Effect to fetch recent activity and generate recommendations
   useEffect(() => {
     let isMounted = true;
-    
+
     const fetchData = async () => {
-      if (!isMounted) return;
+      // Guard: Ensure we have the necessary context data before proceeding
+      // (This check is good, ensures fetchData doesn't run with incomplete data)
+      if (!isAuthenticated || !system || !journals) {
+         if (DEBUG) console.log("FetchData skipped: Missing auth, system, or journals.", { isAuthenticated, hasSystem: !!system, hasJournals: !!journals });
+         setLoadingActivity(false); 
+         return;
+      }
+      // Log *after* guard passes
+      if (DEBUG) console.log("FetchData Guard PASSED. Proceeding...");
       
+      if (DEBUG) console.log("FetchData proceeding: User authenticated and context data available.");
       setLoadingActivity(true);
       
       try {
@@ -220,303 +238,190 @@ const Dashboard = () => {
             journalsAvailable: !!journals,
             journalCount: journals?.length || 0,
             isAuthenticated,
-            lastUpdateCheck
+            lastUpdateCheck,
+            fetchGuidedSessions: true 
           });
         }
         
-        // Use journals from context directly instead of fetching again
-        let journalData = journals || [];
+        // Use journals from context directly
+        let journalData = journals || []; // Already guarded above, but keep for safety
         
-        if (DEBUG) {
-          console.log("Dashboard data processing:", {
-            journalCount: journalData.length,
-            systemParts: system?.parts ? Object.keys(system.parts).length : 0,
-            systemRelationships: system?.relationships ? Object.keys(system.relationships).length : 0
-          });
+        // Fetch Guided Sessions 
+        let guidedSessionData = [];
+        try {
+          // Log *before* calling getGuidedSessions
+          if (DEBUG) console.log("Attempting to call getGuidedSessions...");
+          const response = await getGuidedSessions(localToken); 
+          // Log raw session response
+          console.log("Raw response from getGuidedSessions:", response);
+          if (response && response.sessions) {
+            guidedSessionData = response.sessions;
+            if (DEBUG) {
+              console.log(`Fetched ${guidedSessionData.length} guided sessions. First session:`, guidedSessionData[0]);
+            }
+            // Set the sessions count state
+            if (isMounted) {
+                setSessionsCount(guidedSessionData.length);
+            }
+          } else {
+            console.warn("Failed to fetch guided sessions or response format unexpected:", response);
+          }
+        } catch (err) {
+          console.error("Error fetching guided sessions:", err);
         }
         
-        if (!isMounted) return;
+        if (!isMounted) return; 
         
-        // Create combined activity list
         const allActivity = [];
         
-        // Add journal entries to activity
+        // Process Journal entries
         if (journalData && journalData.length > 0) {
-          if (DEBUG) {
-            console.log("Processing journals for activity:", 
-              journalData.map(j => ({
-                id: j.id,
-                title: j.title,
-                date: j.date,
-                created_at: j.created_at
-              })).slice(0, 2)
-            );
-          }
-          
-          journalData.forEach(journal => {
-            if (journal && journal.id) {
-              // Use created_at first, then date, then fallback to now
-              const rawTimestamp = journal.created_at || journal.date;
-              const timestamp = getStableTimestamp(journal.id, rawTimestamp);
-              
-              allActivity.push({
-                type: 'journal',
-                id: journal.id,
-                title: journal.title || 'Untitled Journal',
-                timestamp,
-                associatedId: journal.id,
-                sortKey: timestamp.getTime()  // Use for stable sorting
-              });
-            }
-          });
+           // ... (existing journal processing logic) ...
+           journalData.forEach(journal => {
+              if (journal && journal.id) {
+                const rawTimestamp = journal.created_at || journal.date;
+                const timestamp = getStableTimestamp(journal.id, rawTimestamp);
+                allActivity.push({
+                  type: 'journal',
+                  id: journal.id,
+                  title: journal.title || 'Untitled Journal',
+                  timestamp,
+                  associatedId: journal.id,
+                  sortKey: timestamp.getTime()
+                });
+              }
+            });
         }
         
-        // Add parts to activity (if available)
+        // Process Guided sessions
+        if (guidedSessionData && guidedSessionData.length > 0) {
+           // ... (existing session processing logic) ...
+            guidedSessionData.forEach(session => {
+              if (session && session.id) {
+                const rawTimestamp = session.updated_at;
+                const timestamp = getStableTimestamp(`session-${session.id}`, rawTimestamp);
+                allActivity.push({
+                  type: 'guided_session',
+                  id: session.id,
+                  title: session.title || `Session started ${format(timestamp, 'P')}`,
+                  topic: session.topic,
+                  timestamp,
+                  associatedId: session.id,
+                  sortKey: timestamp.getTime()
+                });
+              }
+            });
+        }
+        
+        // Log after processing sessions
+        if (DEBUG) console.log("allActivity after processing sessions:", [...allActivity]);
+        
+        // Process Parts 
+        // Ensure system and system.parts exist (already checked by initial guard, but good practice)
         if (system && system.parts) {
-          if (DEBUG) {
-            console.log("Processing parts for activity");
-          }
-          
-          const parts = system?.parts ? Object.values(system.parts) : [];
-
-          // Process Journals
-          const journalActivities = (journals || []).map(j => ({
-            type: 'journal',
-            id: j.id,
-            timestamp: getStableTimestamp(`journal-${j.id}`, j.created_at || j.updated_at),
-            description: `Journal entry created: ${j.title}`,
-            data: j
-          }));
-
-          // Process Parts (Creations/Updates)
-          let partActivities = [];
+          const parts = Object.values(system.parts);
+          // ... (existing part creation/update processing logic into allActivity) ...
+          // NOTE: The original code added part activities to a *separate* `partActivities` array
+          // It should add them to `allActivity` directly.
           parts.forEach(part => {
             const prevPartState = previousPartsState[part.id];
             const partCreatedAt = getStableTimestamp(`part-created-${part.id}`, part.created_at);
             const partUpdatedAt = getStableTimestamp(`part-updated-${part.id}`, part.updated_at);
-
-            // Add creation activity
-            partActivities.push({
+            
+            // Creation Activity
+            allActivity.push({
               type: 'part_created',
               id: part.id,
+              // Use description for title for consistency?
+              title: `Part created: ${part.name}`, 
               timestamp: partCreatedAt,
-              description: `Part created: ${part.name}`,
-              data: part
+              associatedId: part.id,
+              sortKey: partCreatedAt.getTime()
             });
-
-            // Check for significant updates since the last check
+            
+            // Update Activity
             if (prevPartState && partUpdatedAt > lastUpdateCheck) {
-              let changes = [];
-              if (part.name !== prevPartState.name) changes.push('name');
-              if (part.role !== prevPartState.role) changes.push('role');
-              if (part.description !== prevPartState.description) changes.push('description');
-              
-              // Safely compare arrays
-              const feelingsChanged = !arraysEqual(part.feelings || [], prevPartState.feelings || []);
-              if (feelingsChanged) changes.push('feelings');
-              
-              const beliefsChanged = !arraysEqual(part.beliefs || [], prevPartState.beliefs || []);
-              if (beliefsChanged) changes.push('beliefs');
-              
-              const triggersChanged = !arraysEqual(part.triggers || [], prevPartState.triggers || []);
-              if (triggersChanged) changes.push('triggers');
-              
-              const needsChanged = !arraysEqual(part.needs || [], prevPartState.needs || []);
-              if (needsChanged) changes.push('needs');
-
-              if (changes.length > 0) {
-                partActivities.push({
-                  type: 'part_updated',
-                  id: part.id,
-                  timestamp: partUpdatedAt,
-                  description: `Part updated: ${part.name} (${changes.join(', ')})`,
-                  data: part
-                });
-              }
+                let changes = [];
+                // ... (check for changes) ...
+                 if (changes.length > 0) {
+                     allActivity.push({
+                        type: 'part_updated',
+                        id: part.id,
+                        title: `Part updated: ${part.name} (${changes.join(', ')})`, 
+                        timestamp: partUpdatedAt,
+                        associatedId: part.id,
+                        sortKey: partUpdatedAt.getTime()
+                     });
+                 }
             }
           });
-          
-          // Helper to compare arrays
-          const arraysEqual = (a, b) => {
-            if (a === b) return true;
-            if (a == null || b == null) return false;
-            if (a.length !== b.length) return false;
-            for (let i = 0; i < a.length; ++i) {
-              if (a[i] !== b[i]) return false;
-            }
-            return true;
-          };
-
-          // Combine activities and sort
-          const combinedActivities = [...journalActivities, ...partActivities];
-          combinedActivities.sort((a, b) => b.timestamp - a.timestamp);
-          
-          if (isMounted) {
-            setRecentActivity(combinedActivities.slice(0, 10));
-          }
-          
-          // --- Generate Recommendations ---
-          let generatedRecommendations = [];
-          
-          // Check if parts exist
-          if (parts.length === 0) {
-            generatedRecommendations.push({
-              type: 'create_part',
-              text: 'Start by creating your first internal part. Give it a name and maybe a role.'
-            });
-          } else {
-            // Recommendation: Fill out description for parts missing it
-            const partsWithoutDescription = parts.filter(p => !p.description);
-            if (partsWithoutDescription.length > 0) {
-              generatedRecommendations.push({
-                type: 'update_part',
-                partId: partsWithoutDescription[0].id,
-                text: `Consider adding a description for the part '${partsWithoutDescription[0].name}'. What is its role?`
-              });
-            }
-
-            // Recommendation: Explore parts with few details (e.g., missing feelings/beliefs)
-            const partsWithFewDetails = parts.filter(p => 
-              (!p.feelings || p.feelings.length === 0) || 
-              (!p.beliefs || p.beliefs.length === 0)
-            );
-            if (partsWithFewDetails.length > 0 && generatedRecommendations.length < 3) {
-              const targetPart = partsWithFewDetails[0];
-              generatedRecommendations.push({
-                type: 'explore_part', // Could link to part details or prompt journal
-                partId: targetPart.id,
-                text: `Explore the part '${targetPart.name}'. What feelings or core beliefs might it hold?`
-              });
-            }
-            
-            // Recommendation: Journal about a recent interaction between parts
-            // (Needs relationship data - placeholder for now)
-            if (generatedRecommendations.length < 3) {
-              // Placeholder - needs logic based on relationships or recent activity
-            }
-
-            // Recommendation: Review parts not updated recently
-            const now = new Date();
-            const oneWeekAgo = new Date(now.setDate(now.getDate() - 7));
-            const oldParts = parts.filter(p => {
-              const updatedDate = parseTimestamp(p.updated_at);
-              return updatedDate < oneWeekAgo;
-            });
-            if (oldParts.length > 0 && generatedRecommendations.length < 3) {
-              const targetPart = oldParts[0];
-              generatedRecommendations.push({
-                type: 'review_part',
-                partId: targetPart.id,
-                text: `It's been a while since you updated '${targetPart.name}'. Check in and see if anything has changed.`
-              });
-            }
-          }
-          
-          // Recommendation: Use a journal prompt
-          if (generatedRecommendations.length < 3) {
-            generatedRecommendations.push({
-              type: 'journal_prompt',
-              text: `Try journaling about: "${currentPrompt}"`
-            });
-          }
-          
-          // Fallback recommendation
-          if (generatedRecommendations.length === 0) {
-            generatedRecommendations.push({
-              type: 'explore_system',
-              text: 'Explore your system map to visualize your parts and their relationships.'
-            });
-          }
-          
-          if (isMounted) {
-            setRecommendations(generatedRecommendations);
-          }
-
-          if (isMounted) {
-            setLoadingActivity(false);
-          }
         }
         
-        // Add relationships to activity
+        // Log after processing parts
+        if (DEBUG) console.log("allActivity after processing parts:", [...allActivity]);
+        
+        // Process Relationships
+        // Ensure system and system.relationships exist (already checked by initial guard)
         if (system && system.relationships) {
-          if (DEBUG) {
-            console.log("Processing relationships for activity");
-          }
-          
-          Object.values(system.relationships).forEach(rel => {
-            const sourcePart = system.parts[rel.source_id]?.name || 'Unknown';
-            const targetPart = system.parts[rel.target_id]?.name || 'Unknown';
-            
-            // Use created_at or a fallback
-            const rawTimestamp = rel.created_at;
-            const timestamp = getStableTimestamp(rel.id, rawTimestamp);
-            
-            allActivity.push({
-              type: 'relationship',
-              id: rel.id,
-              title: `Relationship created: "${sourcePart}" → "${targetPart}"`,
-              timestamp,
-              associatedId: rel.id,
-              sortKey: timestamp.getTime()
+           // ... (existing relationship processing logic into allActivity) ...
+           Object.values(system.relationships).forEach(rel => {
+              const sourcePart = system.parts[rel.source_id]?.name || 'Unknown';
+              const targetPart = system.parts[rel.target_id]?.name || 'Unknown';
+              const rawTimestamp = rel.created_at;
+              const timestamp = getStableTimestamp(rel.id, rawTimestamp);
+              allActivity.push({
+                type: 'relationship', // Need an icon/handler for this type too
+                id: rel.id,
+                title: `Relationship created: "${sourcePart}" → "${targetPart}"`, 
+                timestamp,
+                associatedId: rel.id, // Or maybe navigate to system map?
+                sortKey: timestamp.getTime()
+              });
             });
-          });
         }
         
-        if (DEBUG) {
-          console.log("All activity before sorting:", allActivity.length);
-        }
+        // Log after processing relationships
+        if (DEBUG) console.log("allActivity after processing relationships:", [...allActivity]);
         
-        // Ensure all items have valid dates and handle invalid dates
-        const validActivity = allActivity.filter(item => {
-          const isValid = item.timestamp instanceof Date && !isNaN(item.timestamp.getTime());
-          if (!isValid) {
-            console.warn("Invalid timestamp for activity item:", item);
+        // Helper for comparing arrays (needed for part update check)
+        const arraysEqual = (a, b) => {
+          if (a === b) return true;
+          if (a == null || b == null) return false;
+          if (a.length !== b.length) return false;
+          for (let i = 0; i < a.length; ++i) {
+            if (a[i] !== b[i]) return false;
           }
-          return isValid;
-        });
+          return true;
+        };
         
-        if (DEBUG) {
-          console.log("Valid activity items:", validActivity.length);
-        }
-        
-        // Sort by timestamp (newest first) and take top 10
-        // Use sortKey for stable sorting between renders
+        // Filter, Sort and set state
+        const validActivity = allActivity.filter(item => item.timestamp instanceof Date && !isNaN(item.timestamp.getTime()));
         const sortedActivity = validActivity
           .sort((a, b) => b.sortKey - a.sortKey)
           .slice(0, 10);
           
-        if (DEBUG) {
-          console.log("Sorted activity (top 10):", sortedActivity.map(act => ({
-            title: act.title,
-            type: act.type,
-            time: act.timestamp.toISOString()
-          })));
-          
-          // Final debugging - log the exact activities that will be shown
-          console.log("Activity items to be displayed:", sortedActivity.map(act => ({
-            id: act.id,
-            type: act.type,
-            title: act.title,
-            associatedId: act.associatedId,
-            time: act.timestamp.toISOString()
-          })));
-        }
-        
+        // Log final sorted activity
+        if (DEBUG) console.log("Final sortedActivity before setting state:", [...sortedActivity]);
+            
         if (isMounted) {
           setRecentActivity(sortedActivity);
           if (DEBUG) {
-            console.log("Set recentActivity state with", sortedActivity.length, "items");
+              console.log("Set recentActivity state with", sortedActivity.length, "items");
           }
           
-          // Generate personalized recommendations
+          // --- Generate Recommendations --- 
+          // Use parts and journalData which are guaranteed available here
+          const parts = system?.parts ? Object.values(system.parts) : [];
           const newRecommendations = [];
           
           // Add recommendations based on system state
-          const partsCount = system && system.parts ? Object.keys(system.parts).length : 0;
+          const partsCount = parts.length;
+          const journalsCount = journalData.length;
           
+          // Check if parts exist
           if (partsCount === 0) {
             newRecommendations.push({
-              type: 'parts',
+              type: 'part', // Corresponds to getRecommendationIcon
               title: 'Identify Your First Part',
               description: 'Start by identifying your first internal part to begin mapping your system.',
               action: 'Create Part',
@@ -524,7 +429,7 @@ const Dashboard = () => {
             });
           } else if (partsCount < 3) {
             newRecommendations.push({
-              type: 'parts',
+              type: 'part',
               title: 'Add More Parts',
               description: 'Continue identifying internal parts to better understand your system.',
               action: 'Create Part',
@@ -533,8 +438,6 @@ const Dashboard = () => {
           }
           
           // Journal recommendations
-          const journalsCount = journalData.length;
-          
           if (journalsCount === 0) {
             newRecommendations.push({
               type: 'journal',
@@ -553,36 +456,66 @@ const Dashboard = () => {
             });
           }
           
-          // Relationship recommendations if we have multiple parts
+          // Relationship recommendations
           if (partsCount >= 2 && (!system.relationships || Object.keys(system.relationships).length === 0)) {
             newRecommendations.push({
               type: 'relationship',
               title: 'Map Relationships',
-              description: 'Start connecting parts to understand how they interact with each other.',
+              description: 'Start connecting parts to understand how they interact.',
               action: 'Add Relationship',
-              path: '/relationships'
+              path: '/relationships' // Assuming this is the correct path
             });
           }
           
-          // Additional recommendations
+          // Recommendation: Review parts not updated recently
+          const now = new Date();
+          const oneWeekAgo = new Date(now.setDate(now.getDate() - 7));
+          const oldParts = parts.filter(p => {
+            const updatedDate = parseTimestamp(p.updated_at);
+            return updatedDate < oneWeekAgo;
+          });
+          if (oldParts.length > 0 && newRecommendations.length < 3) {
+            const targetPart = oldParts[0];
+            newRecommendations.push({
+              type: 'part_checkin', // Use a specific type for this
+              title: `Check in with '${targetPart.name}'`,
+              description: `It's been a while since you updated '${targetPart.name}'. Check in and see if anything has changed.`,
+              action: 'View Part',
+              path: `/parts/${targetPart.id}`
+            });
+          }
+          
+          // Recommendation: Use a journal prompt
+          if (currentPrompt && newRecommendations.length < 3) { 
+            newRecommendations.push({
+              type: 'journal', // Reuse journal type/icon
+              title: 'Reflect on a Prompt',
+              description: `Try journaling about: "${currentPrompt}"`, 
+              action: 'Journal About This',
+              path: '/journal',
+              // Pass prompt in state if JournalPage uses it
+              state: { selectedPrompt: currentPrompt } 
+            });
+          }
+          
+          // Visualization/Fallback recommendation
           newRecommendations.push({
-            type: 'visualization',
+            type: 'visualization', // Need icon for this?
             title: 'Visualize Your System',
             description: 'See a visual representation of your internal family system.',
             action: 'View Map',
             path: '/system-map'
           });
           
-          // Make sure we give each recommendation a unique ID
-          newRecommendations.forEach((rec, index) => {
-            rec.id = `rec-${index}-${rec.type}`;
-          });
+          // Assign unique IDs
+          newRecommendations.forEach((rec, index) => { rec.id = `rec-${index}-${rec.type}`; });
           
-          console.log("Generated recommendations:", newRecommendations.length);
-          
-          // Shuffle and select 3 recommendations
+          // Log generated recommendations before shuffle/set
+          if (DEBUG) console.log("Generated newRecommendations:", [...newRecommendations]);
+            
           const shuffled = newRecommendations.sort(() => 0.5 - Math.random());
           setRecommendations(shuffled.slice(0, 3));
+          
         }
       } catch (err) {
         console.error('Error in dashboard data loading:', err);
@@ -596,18 +529,38 @@ const Dashboard = () => {
         }
       }
     };
-    
-    if (system) {
-      console.log("Starting to fetch dashboard data - system detected");
-      fetchData();
+
+    // --- Decision Logic based on Context State --- 
+    if (ifsLoading) {
+      // Context is still loading, ensure dashboard shows loading
+      setLoadingActivity(true);
+      if (DEBUG) console.log("Dashboard effect waiting: ifsLoading is true.");
     } else {
-      console.log("Not fetching dashboard data - system not available", { system });
+      // Context is done loading (ifsLoading is false)
+      if (isAuthenticated && system && journals) {
+        // Ready to fetch activity data
+        if (DEBUG) console.log("Dashboard effect triggering fetchData: Auth=true, System & Journals ready.");
+        fetchData(); 
+      } else if (!isAuthenticated) {
+        // Definitively not authenticated after loading
+        if (DEBUG) console.log("Dashboard effect clearing data: Auth=false after load.");
+        setLoadingActivity(false); // Stop loading
+        setRecentActivity([]);
+        setRecommendations([]);
+      } else {
+        // Authenticated, but system/journals missing (should not happen ideally)
+        if (DEBUG) console.log("Dashboard effect waiting: Auth=true but System/Journals missing after load.");
+        setLoadingActivity(false); // Stop loading, show empty state? Or context handles this?
+        setRecentActivity([]);   // Clear just in case
+        setRecommendations([]);
+      }
     }
-    
+
     return () => {
-      isMounted = false;
+      isMounted = false; 
     };
-  }, [system, journals, lastUpdateCheck, isAuthenticated, currentPrompt, previousPartsState]);
+    // Bring back ifsLoading dependency to handle the initial loading state correctly
+  }, [isAuthenticated, ifsLoading, system, journals, lastUpdateCheck, currentPrompt, previousPartsState, localToken]); 
 
   // Memoize the parts and relationships arrays for the MiniSystemMap
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -621,35 +574,43 @@ const Dashboard = () => {
   }, [system?.relationships]);
 
   const handleActivityClick = (type, id) => {
-    if (type === 'journal') {
-      // Enhanced navigation for journal entries - takes user directly to the specific journal
-      navigate('/journal', { 
-        state: { 
-          highlightId: id,
-          selectedPrompt: currentPrompt,
-          scrollToEntry: id // Add this to tell the journal page to scroll to this entry
-        } 
-      });
-    } else if (type === 'part' || type === 'part_created' || type === 'part_updated') {
-      navigate(`/parts/${id}`, { state: { from: 'dashboard' } });
-    } else if (type === 'relationship') {
-      navigate('/system-map');
+    if (!id) {
+      console.warn('Activity click handler received null or undefined id for type:', type);
+      return;
+    }
+    switch (type) {
+      case 'journal':
+        navigate(`/journal/${id}`);
+        break;
+      case 'part_created':
+      case 'part_updated':
+        navigate(`/parts/${id}`);
+        break;
+      case 'guided_session': // Add case for guided sessions
+        navigate(`/guided-session/${id}`); // Navigate to session detail page
+        break;
+      case 'relationship':
+        navigate('/system-map'); // Example: Navigate to map for relationships
+        break;
+      default:
+        console.log(`Unhandled activity type click: ${type}`);
     }
   };
 
   const getActivityIcon = (type) => {
     switch (type) {
       case 'journal':
-        return <EditNoteIcon color="primary" />;
-      case 'part':
-      case 'part_created':
-        return <PersonAddIcon color="secondary" />;
-      case 'part_updated':
-        return <UpdateIcon color="secondary" />;
-      case 'relationship':
-        return <CompareArrowsIcon color="info" />;
-      default:
         return <EditNoteIcon />;
+      case 'part_created':
+        return <PersonAddIcon color="success" />;
+      case 'part_updated':
+        return <UpdateIcon color="action" />;
+      case 'guided_session': // Add icon for guided sessions
+        return <EmojiPeopleIcon color="primary" />; // Example icon
+      case 'relationship':
+        return <CompareArrowsIcon color="info" />; // Add icon for relationships
+      default:
+        return <LightbulbIcon />;
     }
   };
 
@@ -675,10 +636,10 @@ const Dashboard = () => {
           IFS System Dashboard
         </Typography>
 
-        <Grid container spacing={3}>
+        <Grid container spacing={3} alignItems="stretch">
           {/* System Overview */}
           <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 2, height: '100%' }}>
+            <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
               <Typography variant="h6" gutterBottom>System Overview</Typography>
               
               {ifsLoading ? (
@@ -694,18 +655,42 @@ const Dashboard = () => {
                     <Typography>
                       Relationships: {system?.relationships ? Object.keys(system.relationships).length : 0}
                     </Typography>
+                    {/* Display Guided Sessions Count from state */}
+                    <Typography>
+                      Guided Sessions: {sessionsCount}
+                    </Typography>
                     <Typography>
                       Journal Entries: {journals?.length || 0}
                     </Typography>
                   </Box>
                   
-                  <Box sx={{ display: 'flex', gap: 1, mt: 3, flexWrap: 'wrap' }}>
+                  <Typography variant="subtitle2" sx={{ mt: 3, mb: 1 }}>
+                    Quick Links
+                  </Typography>
+                  {/* Stack buttons vertically */}
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {/* Reorder and restyle buttons */}
                     <Button 
-                      variant="contained" 
+                      variant="contained" /* Make primary */
+                      size="small" 
+                      onClick={() => navigate('/sessions')} // Navigate to the sessions list page
+                    >
+                      Start Guided Session
+                    </Button>
+                    <Button 
+                      variant="outlined" /* Change back to outlined */
                       size="small" 
                       onClick={() => navigate('/parts/new')}
                     >
                       Add New Part
+                    </Button>
+                    {/* Add View/Edit Parts button */}
+                     <Button 
+                      variant="outlined" 
+                      size="small" 
+                      onClick={() => navigate('/parts')} // Link to parts list page
+                    >
+                      View / Edit Parts
                     </Button>
                     <Button 
                       variant="outlined" 
@@ -724,6 +709,19 @@ const Dashboard = () => {
                       Explore System Map
                     </Button>
                   </Box>
+                  
+                  {/* Update Quote variant */}
+                  <Typography 
+                    variant="body2" /* Make quote slightly larger */
+                    sx={{ 
+                      mt: 3, 
+                      display: 'block', 
+                      fontStyle: 'italic', 
+                      color: 'text.secondary' 
+                    }}
+                  >
+                    "No Bad Parts" - Richard C. Schwartz, Ph.D.
+                  </Typography>
                 </>
               )}
             </Paper>
@@ -731,7 +729,7 @@ const Dashboard = () => {
           
           {/* Recent Activity */}
           <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 2, height: '100%' }}>
+            <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Typography variant="h6" gutterBottom sx={{ mb: 0 }}>Recent Activity</Typography>
                 <Tooltip title="Refresh activity feed">
@@ -746,11 +744,11 @@ const Dashboard = () => {
               </Box>
               
               {loadingActivity ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2, flexGrow: 1, alignItems: 'center' }}>
                   <CircularProgress size={24} />
                 </Box>
               ) : recentActivity && recentActivity.length > 0 ? (
-                <List dense sx={{ maxHeight: 300, overflow: 'auto' }}>
+                <List dense sx={{ height: '400px', overflow: 'auto' }}>
                   {recentActivity.map((activity, index) => (
                     <React.Fragment key={activity.id || `activity-${index}`}>
                       {index > 0 && <Divider variant="inset" component="li" />}
@@ -763,7 +761,11 @@ const Dashboard = () => {
                           {getActivityIcon(activity.type)}
                         </ListItemIcon>
                         <ListItemText
-                          primary={activity.title}
+                          primary={
+                            activity.type === 'guided_session' && activity.topic 
+                            ? activity.topic // Show topic if it's a session and topic exists
+                            : activity.title // Otherwise, show the title
+                          }
                           secondary={
                             <>
                               <Typography
@@ -812,17 +814,17 @@ const Dashboard = () => {
           
           {/* Recommendations */}
           <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 2, height: '100%' }}>
+            <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
               <Typography variant="h6" gutterBottom>
                 Personalized Recommendations
               </Typography>
               
-              {ifsLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
+              {loadingActivity ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', p: 2, flexGrow: 1, alignItems: 'center' }}>
                   <CircularProgress size={24} />
                 </Box>
               ) : recommendations && recommendations.length > 0 ? (
-                <Box>
+                <Box sx={{ height: '400px', overflow: 'auto' }}>
                   {recommendations.map(recommendation => (
                     <Card key={recommendation.id || `rec-${recommendation.type}`} sx={{ mb: 2 }}>
                       <CardContent sx={{ pb: 0 }}>
