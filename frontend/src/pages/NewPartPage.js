@@ -153,27 +153,6 @@ const NewPartPage = () => {
           </Alert>
         )}
         
-        {/* Debug Info */}
-        <Box sx={{ mb: 3 }}>
-          <Button 
-            variant="outlined" 
-            color="secondary" 
-            size="small"
-            onClick={() => {
-              console.log("Debug Info:");
-              console.log("Authenticated:", isAuthenticated);
-              console.log("Token available:", !!token);
-              console.log("System:", system);
-              if (system) {
-                console.log("System ID:", system.id);
-                console.log("Parts count:", system.parts_count);
-              }
-            }}
-          >
-            Debug Info
-          </Button>
-        </Box>
-        
         <Paper sx={{ p: 3 }}>
           <form onSubmit={handleSubmit}>
             <Stack spacing={3}>
