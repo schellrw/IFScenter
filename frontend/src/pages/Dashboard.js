@@ -639,8 +639,8 @@ const Dashboard = () => {
         <Grid container spacing={3} alignItems="stretch">
           {/* System Overview */}
           <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h6" gutterBottom>System Overview</Typography>
+            <Paper component="section" aria-labelledby="system-overview-heading" sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Typography variant="h6" gutterBottom id="system-overview-heading">System Overview</Typography>
               
               {ifsLoading ? (
                 <Box sx={{ display: 'flex', justifyContent: 'center', p: 2 }}>
@@ -729,14 +729,15 @@ const Dashboard = () => {
           
           {/* Recent Activity */}
           <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Paper component="section" aria-labelledby="recent-activity-heading" sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="h6" gutterBottom sx={{ mb: 0 }}>Recent Activity</Typography>
+                <Typography variant="h6" gutterBottom sx={{ mb: 0 }} id="recent-activity-heading">Recent Activity</Typography>
                 <Tooltip title="Refresh activity feed">
                   <IconButton 
                     size="small" 
                     onClick={() => setLastUpdateCheck(Date.now())}
                     disabled={loadingActivity}
+                    aria-label="Refresh activity feed"
                   >
                     <RefreshIcon fontSize="small" />
                   </IconButton>
@@ -814,8 +815,8 @@ const Dashboard = () => {
           
           {/* Recommendations */}
           <Grid item xs={12} md={4}>
-            <Paper sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
-              <Typography variant="h6" gutterBottom>
+            <Paper component="section" aria-labelledby="recommendations-heading" sx={{ p: 2, height: '100%', display: 'flex', flexDirection: 'column' }}>
+              <Typography variant="h6" gutterBottom id="recommendations-heading">
                 Personalized Recommendations
               </Typography>
               
@@ -874,9 +875,9 @@ const Dashboard = () => {
           
           {/* Second row: Visualizations */}
           <Grid item xs={12}>
-            <Paper sx={{ p: 2, mb: 3 }}>
+            <Paper component="section" aria-labelledby="visualizations-heading" sx={{ p: 2, mb: 3 }}>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h6" gutterBottom sx={{ mb: 0 }}>
+                <Typography variant="h6" gutterBottom sx={{ mb: 0 }} id="visualizations-heading">
                   System Visualizations
                 </Typography>
                 <Button
@@ -957,8 +958,8 @@ const Dashboard = () => {
 
           {/* Reflection for Today */}
           <Grid item xs={12}>
-            <Paper sx={{ p: 3, borderRadius: 2, bgcolor: 'primary.main', color: 'white' }}>
-              <Typography variant="h6" gutterBottom>
+            <Paper component="section" aria-labelledby="reflection-heading" sx={{ p: 3, borderRadius: 2, bgcolor: 'primary.main', color: 'white' }}>
+              <Typography variant="h6" gutterBottom id="reflection-heading">
                 Reflection for Today
               </Typography>
               <Typography variant="body1" sx={{ fontStyle: 'italic', maxWidth: '80%' }}>
