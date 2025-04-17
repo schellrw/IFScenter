@@ -29,15 +29,19 @@ DEFAULT_TOP_P = 0.9
 class LLMService:
     """Service for interacting with LLMs to act as an IFS Guide."""
     
-    def __init__(self, model_name: str = "mistralai/Mistral-7B-Instruct-v0.3"):
+    def __init__(self):
         """Initialize the LLM service.
         
-        Args:
-            model_name: The name of the model to use on Hugging Face.
-                Default is "mistralai/Mistral-7B-Instruct-v0.3".
+        Loads configuration from environment variables:
+        - HUGGINGFACE_API_KEY: Your Hugging Face API token.
+        - GENERATION_MODEL_NAME: The Hugging Face model to use (defaults to mistralai/Mistral-7B-Instruct-v0.3).
         """
-        self.model_name = model_name
-        self.api_url = f"https://api-inference.huggingface.co/models/{model_name}"
+        # Load model name from environment variable, with a default
+        default_model = "mistralai/Mistral-7B-Instruct-v0.3"
+        self.model_name = os.getenv("GENERATION_MODEL_NAME", default_model)
+        logger.info(f"Using LLM model: {self.model_name}") # Log the model being used
+
+        self.api_url = f"https://api-inference.huggingface.co/models/{self.model_name}"
         self.api_key = os.getenv("HUGGINGFACE_API_KEY")
         
         if not self.api_key:
