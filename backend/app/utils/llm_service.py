@@ -29,12 +29,12 @@ DEFAULT_TOP_P = 0.9
 class LLMService:
     """Service for interacting with LLMs to act as an IFS Guide."""
     
-    def __init__(self, model_name: str = "mistralai/Mistral-7B-Instruct-v0.2"):
+    def __init__(self, model_name: str = "mistralai/Mistral-7B-Instruct-v0.3"):
         """Initialize the LLM service.
         
         Args:
             model_name: The name of the model to use on Hugging Face.
-                Default is "mistralai/Mistral-7B-Instruct-v0.2".
+                Default is "mistralai/Mistral-7B-Instruct-v0.3".
         """
         self.model_name = model_name
         self.api_url = f"https://api-inference.huggingface.co/models/{model_name}"
