@@ -29,7 +29,7 @@ function PaymentCancelPage() {
                     <Button component={RouterLink} to="/pricing" variant="contained">
                         View Plans
                     </Button>
-                     <Button component={RouterLink} to="/dashboard" variant="outlined">
+                     <Button component={RouterLink} to="/" variant="outlined">
                         Go to Dashboard
                     </Button>
                  </Box>
