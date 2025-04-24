@@ -17,8 +17,10 @@ import {
   DialogContent,
   DialogContentText,
   DialogTitle,
+  ListItemIcon,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
+import AccountCircleIcon from '@mui/icons-material/AccountCircle';
 import { useAuth } from '../context/AuthContext';
 
 const Navigation = () => {
@@ -73,13 +75,18 @@ const Navigation = () => {
     }
   };
   
+  // Add Pricing and Account Settings to navItems for logged-in users
   const navItems = currentUser ? [
-    { label: 'Dashboard', path: '/' },
-    { label: 'Parts', path: '/parts' },
-    { label: 'System Map', path: '/system-map' },
-    { label: 'Guided Sessions', path: '/sessions' },
-    { label: 'Journal', path: '/journal' },
+    { label: 'Dashboard', path: '/', icon: null },
+    { label: 'Parts', path: '/parts', icon: null },
+    { label: 'System Map', path: '/system-map', icon: null },
+    { label: 'Guided Sessions', path: '/sessions', icon: null },
+    { label: 'Journal', path: '/journal', icon: null },
+    { label: 'Pricing', path: '/pricing', icon: null },
   ] : [];
+
+  // Account Settings specific item (might be better as an Icon Button)
+  const accountSettingsItem = { label: 'Account', path: '/account-settings', icon: <AccountCircleIcon /> };
   
   return (
     <AppBar position="static">
@@ -109,7 +116,7 @@ const Navigation = () => {
                     color="inherit"
                     aria-label="menu"
                     onClick={handleMenuClick}
-                    edge="start"
+                    edge="end"
                   >
                     <MenuIcon />
                   </IconButton>
@@ -127,9 +134,20 @@ const Navigation = () => {
                         {item.label}
                       </MenuItem>
                     ))}
-                    <MenuItem onClick={handleLogoutClick}>
-                      Logout
-                    </MenuItem>
+                    {/* Add Account Settings to mobile menu */}
+                     <MenuItem
+                        key={accountSettingsItem.path}
+                        onClick={() => handleNavigation(accountSettingsItem.path)}
+                        selected={isActive(accountSettingsItem.path)}
+                     >
+                        <ListItemIcon>
+                           {accountSettingsItem.icon}
+                         </ListItemIcon>
+                         {accountSettingsItem.label}
+                     </MenuItem>
+                     <MenuItem onClick={handleLogoutClick}>
+                        Logout
+                     </MenuItem>
                   </Menu>
                 </>
               ) : (
@@ -149,11 +167,20 @@ const Navigation = () => {
                         {item.label}
                       </Button>
                     ))}
+                    {/* Add Account Settings Icon Button for Desktop */}
+                     <IconButton
+                       color="inherit"
+                       onClick={() => handleNavigation(accountSettingsItem.path)}
+                       title="Account Settings"
+                       sx={{ ml: 1 }}
+                     >
+                       {accountSettingsItem.icon}
+                     </IconButton>
                   </Box>
                   <Button 
                     color="inherit" 
                     onClick={handleLogoutClick}
-                    sx={{ ml: 2 }}
+                    sx={{ ml: 1 }}
                   >
                     Logout
                   </Button>
@@ -187,6 +214,15 @@ const Navigation = () => {
             </>
           ) : (
             <>
+              {/* Add Pricing Button for logged-out view */}
+               <Button
+                 color="inherit"
+                 component={RouterLink}
+                 to="/pricing"
+                 sx={{ display: isActive('/pricing') ? 'none' : 'block' }}
+               >
+                 Pricing
+               </Button>
               {!isActive('/login') && (
                 <Button
                   color="inherit"

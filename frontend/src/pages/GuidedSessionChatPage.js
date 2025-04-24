@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useIFS } from '../context/IFSContext';
+import { useAuth } from '../context/AuthContext';
 import {
   Container,
   Box,
@@ -13,11 +14,13 @@ import {
   IconButton,
   Divider,
   Alert,
+  Snackbar
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent';
 import axios from 'axios';
+import { format, formatDistanceToNow, parseISO, isValid } from 'date-fns';
 
 // Clean up the API_BASE_URL to handle any potential quotation marks and ensure proper URL formation
 let API_BASE_URL;
@@ -37,6 +40,7 @@ const GuidedSessionChatPage = () => {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { user } = useIFS();
+  const { refreshCurrentUser } = useAuth();
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [session, setSession] = useState(null);
@@ -44,6 +48,10 @@ const GuidedSessionChatPage = () => {
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState('');
   const messagesEndRef = useRef(null);
+  // Snackbar state
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('info');
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -61,6 +69,14 @@ const GuidedSessionChatPage = () => {
     }
   }, [sessionId]); // Depend on sessionId
 
+  // Snackbar close handler
+  const handleSnackbarClose = (event, reason) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setSnackbarOpen(false);
+  };
+
   const fetchSessionDetails = async (id) => {
     setIsLoading(true);
     setError('');
@@ -74,6 +90,8 @@ const GuidedSessionChatPage = () => {
       if (response.data) {
         setSession(response.data.session || null);
         setMessages(response.data.messages || []);
+        // Log the session data after setting state to confirm summary presence
+        console.log('Fetched and set session details:', response.data.session);
         // Optionally store system and focusPart info if needed
         // setSystemInfo(response.data.system);
         // setFocusPartInfo(response.data.currentFocusPart);
@@ -118,9 +136,9 @@ const GuidedSessionChatPage = () => {
         { content: userMessageContent } // Only send content
       );
 
-      // The backend now returns {"user_message": ..., "guide_response": ...}
-      const savedUserMessage = response.data.user_message;
-      const guideResponse = response.data.guide_response;
+      // The backend now returns {"userMessage": ..., "guideMessage": ...}
+      const savedUserMessage = response.data.userMessage;
+      const guideResponse = response.data.guideMessage;
 
       // Replace the temp message with the actual one from the server
       // Add the guide's response
@@ -139,14 +157,35 @@ const GuidedSessionChatPage = () => {
         return newMessages;
       });
 
-      // Handle potential partial success / errors from backend (status 207)
+      // --- Refresh user data after successful send ---
+      try {
+        await refreshCurrentUser();
+      } catch (refreshError) {
+        // Log error if refresh fails, but don't necessarily block UI
+        console.error("Error refreshing user data after message send:", refreshError);
+      }
+      // --- End refresh ---
+
+      // Show backend non-critical error as warning snackbar
       if (response.data.error) {
-        setError(`Note: ${response.data.error}`); // Show non-critical errors
+        setSnackbarMessage(`Note: ${response.data.error}`); 
+        setSnackbarSeverity('warning');
+        setSnackbarOpen(true);
       }
 
     } catch (err) {
       console.error('Error sending message:', err);
-      setError('Failed to send message. Please check your connection and try again.');
+      // --- Use Snackbar for send errors ---
+      let displayError = 'Failed to send message. Please check your connection and try again.';
+      if (err.response && err.response.data && err.response.data.error) {
+          displayError = err.response.data.error;
+      } else if (err.message) {
+          displayError = `Failed to send message: ${err.message}`;
+      }
+      setSnackbarMessage(displayError);
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+      // --- End Snackbar --- 
 
       // Remove the temp message if sending failed
       setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
@@ -245,12 +284,25 @@ const GuidedSessionChatPage = () => {
           >
             <SupportAgentIcon />
           </Avatar>
-          <Typography variant="h4" component="h1">
-            {session.title || 'Guided IFS Session'}
-          </Typography>
+          <Box>
+            <Typography variant="h5" component="h1">
+              {session.created_at 
+                ? format(parseISO(session.created_at), 'PPP')
+                : 'Guided IFS Session'}
+            </Typography>
+            {session.topic && (
+              <Typography 
+                variant="subtitle1"
+                color="text.secondary" 
+                sx={{ mt: 0.5, fontStyle: 'italic' }}
+              >
+                Keywords: {session.topic}
+              </Typography>
+            )}
+          </Box>
         </Box>
 
-        {/* Display general errors here */}
+        {/* Display general page load errors here */}
         {error && !isSending && (
           <Alert severity="error" sx={{ mb: 2 }}>
             {error}
@@ -408,6 +460,18 @@ const GuidedSessionChatPage = () => {
           </Box>
         </Paper>
       </Box>
+      
+      {/* Snackbar for send message feedback */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

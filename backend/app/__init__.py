@@ -5,6 +5,7 @@ import os
 import logging
 from typing import Optional, Dict, Any, Union, List
 import datetime
+import stripe # Import Stripe library
 
 # Add dotenv loading at the top level
 try:
@@ -47,7 +48,14 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
         app.config.from_object(get_config())
     else:
         app.config.from_mapping(test_config)
-    
+
+    # Initialize Stripe
+    if not app.config.get('STRIPE_SECRET_KEY'):
+        app.logger.warning("STRIPE_SECRET_KEY not set. Stripe functionality will be disabled.")
+    else:
+        stripe.api_key = app.config['STRIPE_SECRET_KEY']
+        app.logger.info("Stripe library initialized.")
+
     # Configure logging
     configure_logging(app)
     
@@ -349,6 +357,7 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     from .api.relationships import relationships_bp
     from .api.systems import systems_bp
     from .api.conversations import guided_sessions_bp
+    from .api.billing import billing_bp
     
     app.register_blueprint(auth_bp, url_prefix='/api')
     app.register_blueprint(guided_sessions_bp, url_prefix='/api')
@@ -356,6 +365,7 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     app.register_blueprint(journals_bp, url_prefix='/api')
     app.register_blueprint(relationships_bp, url_prefix='/api')
     app.register_blueprint(systems_bp, url_prefix='/api')
+    app.register_blueprint(billing_bp, url_prefix='/api')
     
     # Root route handler
     @app.route('/', methods=['GET'])

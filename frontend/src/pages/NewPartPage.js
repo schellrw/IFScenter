@@ -107,22 +107,31 @@ const NewPartPage = () => {
     } catch (err) {
       console.error('Error creating part:', err);
       
-      // Enhanced error handling
-      const errorMessage = err.message || 'Unknown error';
-      
-      // Handle specific error messages
-      if (errorMessage.includes('Authentication token not available')) {
-        setError('Authentication error. Please log out and log in again.');
-      } else if (err.response?.status === 401) {
-        setError('Authentication failed. Please log in again.');
-      } else if (err.response?.status === 500) {
-        // More detailed error for server errors
-        const serverError = err.response?.data?.error || 'Internal server error';
-        setError(`Server error: ${serverError}. Please try again or contact support.`);
-        console.error('Server error details:', err.response?.data);
-      } else {
-        setError(`Failed to create part: ${errorMessage}`);
+      // --- Updated Error Handling ---
+      let displayError = 'Failed to create part. Please try again.'; // Default
+
+      // Check for specific backend error message structure
+      if (err.response && err.response.data && err.response.data.error) {
+        displayError = err.response.data.error; // Use backend message directly
+      } else if (err.message) {
+          // Check for known error messages from context/axios if backend structure not matched
+          if (err.message.includes('Authentication token not available')) {
+              displayError = 'Authentication error. Please log out and log in again.';
+          } else {
+              displayError = `Failed to create part: ${err.message}`;
+          }
       }
+      // Handle specific status codes if needed (redundant if backend message is good)
+      /* else if (err.response?.status === 401) {
+        displayError = 'Authentication failed. Please log in again.';
+      } else if (err.response?.status === 500) {
+        const serverError = err.response?.data?.error || 'Internal server error';
+        displayError = `Server error: ${serverError}. Please try again or contact support.`;
+        console.error('Server error details:', err.response?.data);
+      } */
+
+      setError(displayError);
+      // --- End Updated Error Handling ---
     } finally {
       setSaving(false);
     }

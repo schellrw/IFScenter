@@ -7,7 +7,7 @@ import os
 import logging
 import json
 import ast
-from typing import Dict, List, Any, Optional, Union
+from typing import Dict, List, Any, Optional, Union, Tuple
 from uuid import UUID
 
 from flask_sqlalchemy import SQLAlchemy
@@ -147,8 +147,9 @@ class DBAdapter:
             logger.error(f"Error getting record by ID from {table}: {e}")
             return None
     
-    def get_all(self, table: str, model_class, filter_dict: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-        """Get all records, optionally filtered."""
+    def get_all(self, table: str, model_class, filter_dict: Optional[Dict[str, Any]] = None, 
+                order_by: Optional[Tuple[str, str]] = None, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+        """Get all records, optionally filtered, ordered, and limited."""
         try:
             # Log Supabase usage status within the method
             logger.debug(f"DBAdapter.get_all called for table '{table}'. Using Supabase: {self.using_supabase}")
@@ -172,6 +173,15 @@ class DBAdapter:
                     for key, value in filter_dict.items():
                         params[key] = f"eq.{value}"
                 
+                # Apply ordering if provided
+                if order_by:
+                    column, direction = order_by
+                    params['order'] = f"{column}.{'desc' if direction.lower() == 'desc' else 'asc'}"
+                    
+                # Apply limit if provided
+                if limit:
+                    params['limit'] = str(limit)
+                    
                 # Combine our auth headers with the required Supabase headers
                 request_headers = {
                     'apikey': api_key,
@@ -225,6 +235,19 @@ class DBAdapter:
                     for key, value in filter_dict.items():
                         query = query.filter(getattr(model_class, key) == value)
                 
+                # Apply ordering
+                if order_by:
+                    column, direction = order_by
+                    col_attr = getattr(model_class, column)
+                    if direction.lower() == 'desc':
+                        query = query.order_by(col_attr.desc())
+                    else:
+                        query = query.order_by(col_attr.asc())
+                        
+                # Apply limit
+                if limit:
+                    query = query.limit(limit)
+                    
                 records = query.all()
                 return [self._model_to_dict(record) for record in records]
         except Exception as e:
