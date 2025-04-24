@@ -4,7 +4,8 @@ import { useIFS } from '../context/IFSContext';
 import { 
   Container, Typography, Box, Paper, TextField, Button,
   Stack, Alert, Divider, List, ListItem, ListItemText,
-  Accordion, AccordionSummary, AccordionDetails, Chip
+  Accordion, AccordionSummary, AccordionDetails, Chip,
+  Snackbar
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { EmotionPicker, PartSelector, JournalPrompt } from '../components';
@@ -31,7 +32,9 @@ const JournalPage = () => {
   
   // We still track the initial prompt from location state or localStorage
   const [initialPrompt, setInitialPrompt] = useState('');
-  const [saveStatus, setSaveStatus] = useState({ type: '', message: '' });
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('info'); // 'success', 'error', 'warning', 'info'
   
   // Create refs for journal entries for scrolling functionality
   const journalRefs = useRef({});
@@ -105,21 +108,31 @@ const JournalPage = () => {
       console.log('Fetching journals for system:', system.id);
       getJournals().catch(err => {
         console.error('Error fetching journals:', err);
-        setSaveStatus({ 
-          type: 'error', 
-          message: 'Could not load journals. Please ensure you are logged in.' 
-        });
+        // Trigger Snackbar for journal load errors
+        setSnackbarMessage('Could not load journals. Please ensure you are logged in.');
+        setSnackbarSeverity('error');
+        setSnackbarOpen(true);
       });
     } else {
       console.log('No system available yet, skipping journal fetch');
     }
   }, [system?.id]); // Only depend on system.id, not the entire system object or getJournals
 
+  // Snackbar close handler
+  const handleSnackbarClose = (event, reason) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setSnackbarOpen(false);
+  };
+
   const handleSave = async () => {
     try {
-      setSaveStatus({ type: 'info', message: 'Saving...' });
+      // Show saving message (optional, could skip)
+      // setSnackbarMessage('Saving...');
+      // setSnackbarSeverity('info');
+      // setSnackbarOpen(true);
       
-      // Generate a default title if none provided
       const journalTitle = title.trim() || `Journal Entry - ${format(new Date(), 'PPP p')}`;
       
       // Format part_id from selectedParts (take first one if multiple selected)
@@ -138,7 +151,10 @@ const JournalPage = () => {
 
       await addJournal(journalEntry);
       
-      setSaveStatus({ type: 'success', message: 'Journal entry saved successfully!' });
+      // Show success snackbar
+      setSnackbarMessage('Journal entry saved successfully!');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
       
       // Clear form after successful save
       setContent('');
@@ -149,15 +165,23 @@ const JournalPage = () => {
       // Refresh journals list
       getJournals();
       
-      // Clear success message after 3 seconds
-      setTimeout(() => {
-        setSaveStatus({ type: '', message: '' });
-      }, 3000);
     } catch (err) {
-      setSaveStatus({ 
-        type: 'error', 
-        message: 'Failed to save journal entry. Please try again.' 
-      });
+      // --- Updated Error Handling using Snackbar ---
+      let errorMessage = 'Failed to save journal entry. Please try again.'; // Default
+      // Check if the error object has specific details from the backend
+      if (err.response && err.response.data && err.response.data.error) {
+         // Use the specific error message from the backend if it exists
+         errorMessage = err.response.data.error;
+      } else if (err.message) {
+         // Fallback to error message property if no specific backend error
+         errorMessage = err.message;
+      }
+      console.error('Error saving journal:', err.response || err);
+      // Show error snackbar
+      setSnackbarMessage(errorMessage);
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+      // --- End Updated Error Handling ---
     }
   };
 
@@ -187,7 +211,7 @@ const JournalPage = () => {
     );
   }
 
-  if (error) {
+  if (error && !journals) { // Only show page-level error if journals failed to load initially
     return (
       <Container sx={{ mt: 4 }}>
         <Alert severity="error">{error}</Alert>
@@ -254,8 +278,8 @@ const JournalPage = () => {
             />
           </Paper>
 
-          {/* Save Button and Status */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          {/* Save Button - removed the inline Alert */}
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
             <Button
               variant="contained"
               color="primary"
@@ -264,11 +288,6 @@ const JournalPage = () => {
             >
               Save Entry
             </Button>
-            {saveStatus.message && (
-              <Alert severity={saveStatus.type} sx={{ flexGrow: 1, ml: 2 }}>
-                {saveStatus.message}
-              </Alert>
-            )}
           </Box>
           
           {/* Journal History Section */}
@@ -334,6 +353,18 @@ const JournalPage = () => {
           )}
         </Stack>
       </Box>
+      
+      {/* Snackbar Component for feedback */}
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000} // Hide after 6 seconds
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

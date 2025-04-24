@@ -217,7 +217,12 @@ class LLMService:
                  history_context.append(f"{role}: {msg.get('content', '').strip()}")
 
         # --- Final Instruction ---
-        final_instruction = ["\nGuide's Response (gentle, curious, facilitating):"]
+        # Add a strong negative constraint right before the generation point
+        final_instruction = [
+            "IMPORTANT: Generate ONLY the Guide's next single response based on the history provided.",
+            "Do NOT generate any user responses or dialogue turns beyond the Guide's immediate next reply.",
+            "\nGuide's Response (gentle, curious, facilitating):"
+        ]
 
         # --- Combine Prompt Sections ---
         prompt_sections = [

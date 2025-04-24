@@ -9,7 +9,7 @@ from datetime import datetime
 from uuid import uuid4
 from typing import Dict, Any, List, Optional
 
-from ..models import db, Part, PartConversation
+from ..models import db, Part, PartConversation, User, IFSSystem
 from ..utils.auth_adapter import auth_required
 
 parts_bp = Blueprint('parts', __name__)
@@ -97,13 +97,52 @@ def get_part(part_id):
 @parts_bp.route('/parts', methods=['POST'])
 @auth_required
 def create_part():
-    """Create a new part.
-    
-    Returns:
-        JSON response with created part data.
-    """
+    """Create a new part, checking subscription limits."""
     try:
-        data = request.json
+        user_id = g.current_user['id']
+        user = db.session.get(User, user_id)
+        
+        if not user:
+             logger.error(f"User {user_id} not found during part creation.")
+             # This case should ideally not happen if auth_required works
+             return jsonify({"error": "Authenticated user not found in database"}), 404
+
+        # --- Subscription Limit Check --- 
+        if user.subscription_tier != 'unlimited':
+            # Get system_id from request data first
+            data = request.json
+            system_id = data.get('system_id')
+            if not system_id:
+                 # Validation handles this later, but check early for clarity
+                 return jsonify({"error": "system_id is required"}), 400
+                 
+            # Check if the system belongs to the user (important security check)
+            system = db.session.query(IFSSystem).filter_by(id=system_id, user_id=user_id).first()
+            if not system:
+                logger.warning(f"User {user_id} attempting to create part in system {system_id} they don't own.")
+                return jsonify({"error": "System not found or access denied"}), 403
+
+            # Count existing parts in this system
+            current_part_count = db.session.query(Part).filter_by(system_id=system_id).count()
+            
+            # New limits: Free=10, Pro=20
+            limit = 20 if user.subscription_tier == 'pro' else 10
+            
+            if current_part_count >= limit:
+                logger.info(f"Part limit reached for user {user_id} (Tier: {user.subscription_tier}, Limit: {limit}, Count: {current_part_count})")
+                tier_name = user.subscription_tier.capitalize()
+                # Generalize message for free tier
+                upgrade_suggestion = "Please upgrade to add more parts."
+                if user.subscription_tier == 'pro':
+                     upgrade_suggestion = "Please upgrade to Unlimited to add more parts."
+                
+                return jsonify({
+                    "error": f"{tier_name} plan part limit ({limit}) reached. {upgrade_suggestion}"
+                }), 403 # Forbidden status code
+        # --- End Limit Check ---
+        
+        # Proceed with existing part creation logic
+        data = request.json # Re-get data if not already fetched
         logger.debug(f"Received part creation request: {data}")
         
         # Validate input
@@ -114,9 +153,10 @@ def create_part():
             logger.error(f"Part schema validation failed: {e.messages}")
             return jsonify({"error": "Validation failed", "details": e.messages}), 400
         
-        if 'system_id' not in data:
-            logger.error("No system_id provided in part creation request")
-            return jsonify({"error": "system_id is required"}), 400
+        # system_id check is done above
+        # if 'system_id' not in data:
+        #     logger.error("No system_id provided in part creation request")
+        #     return jsonify({"error": "system_id is required"}), 400
             
         logger.debug(f"Using system_id: {data['system_id']} for new part")
             
@@ -134,11 +174,12 @@ def create_part():
         
         return jsonify(part), 201
     except ValidationError as e:
+        # This specific catch might be redundant if validation is done earlier
         logger.error(f"Validation error: {e.messages}")
         return jsonify({"error": "Validation failed", "details": e.messages}), 400
     except Exception as e:
-        logger.error(f"Error creating part: {str(e)}")
-        return jsonify({"error": f"An error occurred while creating the part: {str(e)}"}), 500
+        logger.error(f"Error creating part: {str(e)}", exc_info=True) # Add exc_info
+        return jsonify({"error": f"An error occurred while creating the part"}), 500 # Simplified error message
 
 @parts_bp.route('/parts/<part_id>', methods=['PUT'])
 @auth_required

@@ -68,6 +68,31 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('refreshToken');
   }, []);
 
+  // --- Add Refresh Function --- 
+  const refreshCurrentUser = useCallback(async () => {
+    console.log("[AuthContext] Refreshing current user data...");
+    if (!token) { // Can't refresh if not logged in
+      console.log("[AuthContext] Cannot refresh, no token.");
+      return;
+    }
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/me`);
+      if (response.data) {
+        console.log("[AuthContext] User data refreshed successfully:", response.data);
+        setCurrentUser(response.data);
+      } else {
+        console.warn("[AuthContext] Refresh response was empty.");
+      }
+    } catch (error) {
+      console.error("[AuthContext] Failed to refresh user data:", error.response?.data || error.message);
+      // Optionally handle the error, e.g., by logging out if it's a 401
+      if (error.response && error.response.status === 401) {
+        logout();
+      }
+    }
+  }, [token, logout]); // Dependencies: token, logout
+  // --- End Refresh Function ---
+
   // Update useEffect to handle both tokens
   useEffect(() => {
     if (token && refreshToken) {
@@ -222,34 +247,86 @@ export const AuthProvider = ({ children }) => {
     }
   }, []);
 
-  // Check token validity (logic remains similar, but ensure setLoading(false) is hit)
+  // Check token validity on mount and when tokens change
   useEffect(() => {
+    let isMounted = true; // Flag to prevent state updates on unmounted component
+
     const checkAuth = async () => {
+      // Ensure loading is true at the start of the check
+      if (isMounted) {
+        setLoading(true); 
+        setError(''); // Clear previous errors
+        setDetailedError(null);
+      }
+
       if (token && refreshToken) { 
         try {
           console.log('Checking stored token validity...');
+          // Use axios directly since headers are set globally
           const response = await axios.get(`${API_BASE_URL}/api/me`); 
           console.log('Token appears valid, user data:', response.data);
-          setCurrentUser(response.data); 
+          if (isMounted) {
+            setCurrentUser(response.data); 
+          }
         } catch (err) {
           console.error('Auth token validation failed:', err.response?.status, err.response?.data || err.message);
-          logout();
-          setDetailedError({
-            message: 'Session invalid or expired', 
-            status: err.response?.status,
-            data: err.response?.data,
-            error: err.message
-          });
+          // Don't logout immediately here, let potential refresh logic handle it?
+          // Or logout if it's specifically a 401 from /api/me
+          if (isMounted) {
+             if (err.response && err.response.status === 401) {
+                logout(); // Logout on 401 from /me check
+             }
+             setDetailedError({
+                message: 'Session invalid or expired during check', 
+                status: err.response?.status,
+                data: err.response?.data,
+                error: err.message
+             });
+             // Keep user null if check fails
+             setCurrentUser(null);
+          }
         }
       } else {
         console.log('No tokens found, user not authenticated');
-        setCurrentUser(null);
+        if (isMounted) {
+          setCurrentUser(null);
+        }
       }
-      setLoading(false);
+      // Always set loading to false after the check completes
+      if (isMounted) {
+        setLoading(false);
+      }
     };
 
     checkAuth();
+
+    // Cleanup function
+    return () => {
+        isMounted = false;
+    };
+  // Dependencies: run when tokens change, or on logout (which clears tokens)
   }, [token, refreshToken, logout]);
+
+  // Add fetchUserProfile function
+  const fetchUserProfile = useCallback(async () => {
+    if (!token || !refreshToken) {
+      console.log('Cannot fetch profile, no tokens.');
+      return; // Exit if no tokens
+    }
+    console.log('Explicitly fetching user profile...');
+    try {
+        const response = await axios.get(`${API_BASE_URL}/api/me`);
+        console.log('User profile fetched successfully:', response.data);
+        setCurrentUser(response.data);
+    } catch (err) {
+        console.error('Failed to fetch user profile:', err.response?.status, err.response?.data || err.message);
+        // Decide if logout is appropriate here, perhaps only on 401?
+        if (err.response && err.response.status === 401) {
+            logout();
+        }
+        // Optionally set an error state here too
+    }
+  }, [token, refreshToken, logout]); // Add dependencies
 
   const register = async (username, email, password) => {
     setLoading(true);
@@ -386,10 +463,12 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     register,
+    fetchUserProfile,
     isAuthenticated: !!token && !!refreshToken && !!currentUser,
     showExpiryWarning,
     remainingTime,
-    extendSession
+    extendSession,
+    refreshCurrentUser
   };
 
   return (

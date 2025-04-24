@@ -69,6 +69,67 @@ def get_current_user() -> Optional[Dict[str, Any]]:
 # Create a proxy for the current user
 current_user = LocalProxy(get_current_user)
 
+# === Add Standalone Token Verification Function ===
+def verify_token() -> Optional[Dict[str, Any]]:
+    """Verifies the token from the Authorization header using the active strategy.
+
+    Currently prioritizes Supabase if configured and available.
+    Extracts user info upon successful verification.
+
+    Returns:
+        Optional[Dict[str, Any]]: User info dictionary (e.g., {'id': ..., 'email': ...}) or None if verification fails.
+    """
+    if should_use_supabase:
+        # Use Supabase Auth strategy
+        try:
+            auth_header = request.headers.get('Authorization')
+            logger.debug(f"verify_token: Auth header: {auth_header}")
+            if not auth_header or not auth_header.startswith('Bearer '):
+                logger.error("verify_token: Missing or invalid authorization header")
+                return None
+            
+            token = auth_header.split(' ')[1]
+            
+            # Verify with Supabase
+            logger.debug(f"verify_token: Verifying token with Supabase: {token[:10]}...")
+            user_data = supabase.client.auth.get_user(token)
+            
+            if not user_data or not user_data.user:
+                logger.error("verify_token: Invalid or expired Supabase token")
+                return None
+            
+            logger.debug(f"verify_token: Authenticated user: {user_data.user.email}")
+            
+            # Return relevant user info (using standard JWT claims where possible)
+            return {
+                "sub": str(user_data.user.id), # 'sub' is standard claim for subject/user ID
+                "id": str(user_data.user.id),  # Include 'id' for compatibility
+                "email": user_data.user.email,
+                # Add any other claims you need from user_data.user or user_data.user.user_metadata
+            }
+        except Exception as e:
+            logger.error(f"verify_token: Supabase auth error: {str(e)}")
+            return None
+    else:
+        # JWT strategy (if not using Supabase)
+        try:
+            # This verifies the token is present, valid, and not expired
+            verify_jwt_in_request() 
+            user_id = get_jwt_identity()
+            logger.debug(f"verify_token: JWT verified, identity: {user_id}")
+            # For JWT, we might only have the ID. Fetch other details if needed.
+            # Here, we just return the ID as 'sub' and 'id'.
+            return {
+                "sub": user_id, 
+                "id": user_id 
+                # Add email etc. if you store them in the JWT or fetch from DB
+            }
+        except Exception as e:
+            logger.error(f"verify_token: JWT auth error: {str(e)}")
+            return None
+
+# ====================================================
+
 def auth_required(f):
     """
     Decorator for routes that require authentication.

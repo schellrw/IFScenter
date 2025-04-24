@@ -210,15 +210,53 @@ def login():
 @auth_bp.route('/me', methods=['GET'])
 @auth_required
 def get_current_user():
-    """Get current authenticated user.
+    """Get the current authenticated user's full profile from the database.
     
     Returns:
-        JSON response with current user data.
+        JSON response with current user data including subscription status.
     """
-    if not g.current_user:
-        return jsonify({"error": "User not found"}), 404
+    if not hasattr(g, 'current_user') or not g.current_user or 'id' not in g.current_user:
+        logger.error("Attempted to access /me route without valid user in g context.")
+        return jsonify({"error": "Authentication context not found"}), 401
+
+    user_id = g.current_user['id']
+    logger.debug(f"Fetching full profile for user ID: {user_id} from g context")
+    
+    # Query the database for the full user object
+    user = db.session.query(User).filter_by(id=user_id).first()
+    
+    if not user:
+        # This case is unlikely if auth_required succeeded but good practice to check
+        logger.error(f"User with ID {user_id} found in token but not in database for /me route.")
+        return jsonify({"error": "User profile not found in database"}), 404
         
-    return jsonify(g.current_user)
+    # Convert user object to dictionary for JSON response
+    # Assuming User model has a to_dict() method or similar
+    # If not, construct manually: e.g., user_data = {"id": user.id, "email": user.email, ...}
+    try:
+        user_data = user.to_dict() 
+        logger.debug(f"Returning full user profile: {user_data}")
+        return jsonify(user_data)
+    except AttributeError:
+        # Fallback if no to_dict() method
+        logger.warning(f"User model does not have to_dict() method. Returning manually constructed profile.")
+        user_data = {
+            "id": str(user.id), # Ensure UUID is string
+            "username": user.username,
+            "email": user.email,
+            "subscription_tier": user.subscription_tier,
+            "subscription_status": user.subscription_status,
+            # Add any other fields needed by the frontend
+            # "full_name": user.full_name, # If you have this field
+            "stripe_customer_id": user.stripe_customer_id, 
+            "created_at": user.created_at.isoformat() if user.created_at else None
+            # Avoid sending password hash!
+        }
+        logger.debug(f"Returning manually constructed user profile: {user_data}")
+        return jsonify(user_data)
+    except Exception as e:
+         logger.error(f"Error serializing user data for /me: {e}", exc_info=True)
+         return jsonify({"error": "Internal server error preparing user data"}), 500
 
 @auth_bp.route('/refresh-token', methods=['POST'])
 def refresh_token():

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useIFS } from '../context/IFSContext';
+import { useAuth } from '../context/AuthContext';
 import {
   Container,
   Box,
@@ -26,6 +27,7 @@ import {
   DialogContent,
   DialogContentText,
   DialogActions,
+  Snackbar
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SearchIcon from '@mui/icons-material/Search';
@@ -34,6 +36,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import DescriptionIcon from '@mui/icons-material/Description';
 import axios from 'axios';
+import { TIER_LIMITS } from '../constants';
 
 let API_BASE_URL;
 if (process.env.REACT_APP_API_URL === undefined || process.env.REACT_APP_API_URL === null) {
@@ -51,6 +54,7 @@ API_BASE_URL = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE
 const GuidedSessionsPage = () => {
   const navigate = useNavigate();
   const { system, loading: systemLoading } = useIFS();
+  const { currentUser } = useAuth();
   const [sessions, setSessions] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -58,6 +62,9 @@ const GuidedSessionsPage = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [sessionToDelete, setSessionToDelete] = useState(null);
+  const [snackbarOpen, setSnackbarOpen] = useState(false);
+  const [snackbarMessage, setSnackbarMessage] = useState('');
+  const [snackbarSeverity, setSnackbarSeverity] = useState('info');
   
   useEffect(() => {
     if (!systemLoading) {
@@ -65,13 +72,29 @@ const GuidedSessionsPage = () => {
     }
   }, [systemLoading]);
 
+  const handleSnackbarClose = (event, reason) => {
+    if (reason === 'clickaway') {
+      return;
+    }
+    setSnackbarOpen(false);
+  };
+
   const fetchSessions = async () => {
     setIsLoading(true);
     setError('');
     
     try {
       const response = await axios.get(`${API_BASE_URL}/api/guided-sessions`);
-      setSessions(response.data.sessions || []);
+      const fetchedSessions = response.data.sessions || [];
+      
+      // Sort sessions by updated_at descending
+      fetchedSessions.sort((a, b) => {
+        const dateA = a.updated_at ? new Date(a.updated_at) : new Date(0);
+        const dateB = b.updated_at ? new Date(b.updated_at) : new Date(0);
+        return dateB.getTime() - dateA.getTime();
+      });
+      
+      setSessions(fetchedSessions);
     } catch (err) {
       console.error('Error fetching guided sessions:', err);
       setError('Failed to load guided sessions. Please try again.');
@@ -80,7 +103,67 @@ const GuidedSessionsPage = () => {
     }
   };
 
+  // Function to check daily message limit (uses currentUser from useAuth and TIER_LIMITS)
+  const checkMessageLimit = () => {
+    console.log("[Limit Check] checkMessageLimit called."); // Log entry
+    if (!currentUser) { // Check currentUser from useAuth
+      console.error("[Limit Check] User auth context not available for limit check.");
+      return false; // Cannot check limit
+    }
+    const tier = currentUser.subscription_tier || 'free'; // Default to free if tier is missing
+    console.log(`[Limit Check] User Tier: ${tier}`); // Log tier
+    
+    if (tier === 'unlimited') {
+      console.log("[Limit Check] User is unlimited. Limit check bypassed.");
+      return false; // Unlimited users never reach the limit
+    }
+    
+    // Get limit from constants
+    const limit = TIER_LIMITS[tier]?.messages || TIER_LIMITS.free.messages;
+    
+    const today = new Date().toISOString().split('T')[0];
+    const lastMessageDate = currentUser.last_message_date ? currentUser.last_message_date.split('T')[0] : null;
+    // Ensure daily_messages_used is treated as a number, default to 0 if null/undefined
+    const messagesUsed = Number(currentUser.daily_messages_used || 0);
+    const messagesUsedToday = (lastMessageDate === today) ? messagesUsed : 0;
+    
+    // Log values used in calculation
+    console.log(`[Limit Check] Limit: ${limit}, Today: ${today}, Last Msg Date: ${lastMessageDate}, Messages Used: ${messagesUsed}, Messages Used Today: ${messagesUsedToday}`);
+
+    if (messagesUsedToday >= limit) {
+      console.log(`[Limit Check] RESULT: Limit Reached (Used Today >= Limit).`);
+      const tierName = tier.charAt(0).toUpperCase() + tier.slice(1);
+      setSnackbarMessage(`${tierName} plan daily message limit (${limit}) reached. Please upgrade or wait until tomorrow.`);
+      setSnackbarSeverity('warning'); // Use warning severity for limit
+      setSnackbarOpen(true);
+      return true; // Limit reached
+    }
+    console.log("[Limit Check] RESULT: Limit Not Reached.");
+    return false; // Limit not reached
+  };
+
   const createNewSession = async () => {
+    console.log("[createNewSession] Function called."); // Log entry
+    // --- Updated check for context availability AND loading state ---
+    // Check systemLoading from useIFS AND currentUser from useAuth
+    if (systemLoading || !currentUser) { 
+      console.error("Attempted to create session, but system or user context is not loaded or still loading.");
+      setSnackbarMessage("System/User data is still loading, please wait a moment and try again.");
+      setSnackbarSeverity('info');
+      setSnackbarOpen(true);
+      return; // Stop if system/user context isn't ready or context is loading
+    }
+    // --- End check ---
+    
+    console.log("[createNewSession] Checking message limit..."); // Log before check
+    // --- Add limit check here ---
+    if (checkMessageLimit()) {
+      console.log("[createNewSession] Limit reached. Aborting session creation."); // Log if limit reached
+      return; // Stop if limit is reached
+    }
+    // --- End limit check ---
+    console.log("[createNewSession] Limit NOT reached. Proceeding with session creation."); // Log if limit not reached
+
     if (isCreating || !system?.id) {
       if (!system?.id) {
         setError('Cannot create session: No active system found.');
@@ -105,7 +188,15 @@ const GuidedSessionsPage = () => {
       }
     } catch (err) {
       console.error('Error creating new guided session:', err);
-      setError('Failed to create a new session. Please try again.');
+      let displayError = 'Failed to create a new session. Please try again.';
+      if (err.response && err.response.data && err.response.data.error) {
+        displayError = err.response.data.error;
+      } else if (err.message) {
+        displayError = `Failed to create session: ${err.message}`;
+      }
+      setSnackbarMessage(displayError);
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
       setIsLoading(false);
       setIsCreating(false);
     }
@@ -330,6 +421,17 @@ const GuidedSessionsPage = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      <Snackbar
+        open={snackbarOpen}
+        autoHideDuration={6000}
+        onClose={handleSnackbarClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
+          {snackbarMessage}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 };

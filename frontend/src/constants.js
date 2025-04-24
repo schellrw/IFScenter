@@ -34,4 +34,25 @@ export const ROLE_OPTIONS = [
   { value: 'exile', label: 'Exile' },
   { value: 'protector', label: 'Protector-Other' }, // Renamed, kept value 'protector'
   // { value: 'self', label: 'Self' }, // Removed Self
-]; 
+];
+
+export const TIER_LIMITS = {
+    free: {
+        parts: 10,       // Total parts
+        journals: 1,      // Per day
+        messages: 10      // Per day
+    },
+    pro: {
+        parts: 20,       // Total parts (Changed from 30)
+        journals: 10,     // Per day
+        messages: 30      // Per day (Changed from 50)
+    },
+    unlimited: {
+        parts: Infinity,
+        journals: Infinity,
+        // sessions: Infinity,
+        messages: Infinity
+    }
+};
+
+// You might need to refine these limits based on how your backend actually enforces them (e.g., daily vs total) 
