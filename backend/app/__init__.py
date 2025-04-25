@@ -350,22 +350,24 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
                 "details": str(e)
             }), 500
     
-    # Register blueprints
+    # Import and register blueprints
     from .api.auth import auth_bp
     from .api.parts import parts_bp
-    from .api.journals import journals_bp
-    from .api.relationships import relationships_bp
-    from .api.systems import systems_bp
     from .api.conversations import guided_sessions_bp
+    from .api.journals import journals_bp
     from .api.billing import billing_bp
-    
-    app.register_blueprint(auth_bp, url_prefix='/api')
-    app.register_blueprint(guided_sessions_bp, url_prefix='/api')
+    from .api.legal import legal_bp
+    from .api.systems import systems_bp
+    from .api.relationships import relationships_bp
+
+    app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(parts_bp, url_prefix='/api')
+    app.register_blueprint(guided_sessions_bp, url_prefix='/api')
     app.register_blueprint(journals_bp, url_prefix='/api')
-    app.register_blueprint(relationships_bp, url_prefix='/api')
-    app.register_blueprint(systems_bp, url_prefix='/api')
     app.register_blueprint(billing_bp, url_prefix='/api')
+    app.register_blueprint(legal_bp, url_prefix='/api')
+    app.register_blueprint(systems_bp, url_prefix='/api')
+    app.register_blueprint(relationships_bp, url_prefix='/api')
     
     # Root route handler
     @app.route('/', methods=['GET'])

@@ -3,7 +3,7 @@ import { supabase } from './supabase'; // Assuming supabase client is exported f
 // Base URL for your Flask backend API
 // Adjust this if your backend runs on a different port or domain
 // Ensure fallback does NOT include /api to match convention in IFSContext.js
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000'; 
+export const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000'; 
 
 /**
  * Fetches all guided sessions for the logged-in user.

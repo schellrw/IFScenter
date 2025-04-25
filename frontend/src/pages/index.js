@@ -11,4 +11,6 @@ export { default as GuidedSessionsPage } from './GuidedSessionsPage';
 export { default as PricingPage } from './PricingPage';
 export { default as AccountSettings } from './AccountSettings';
 export { default as PaymentSuccessPage } from './PaymentSuccessPage';
-export { default as PaymentCancelPage } from './PaymentCancelPage'; 
+export { default as PaymentCancelPage } from './PaymentCancelPage';
+export { default as PrivacyPolicyPage } from './PrivacyPolicyPage';
+export { default as TermsOfServicePage } from './TermsOfServicePage'; 
