@@ -281,6 +281,24 @@ def stripe_webhook():
             # Consider adding alerting here
             return jsonify({"error": "Internal server error during fulfillment"}), 500
         
+    # === ADDED: Handle subscription creation event ===
+    elif event['type'] == 'customer.subscription.created':
+        subscription = event['data']['object']
+        stripe_customer_id = subscription.get('customer')
+        stripe_subscription_id = subscription.get('id')
+        current_app.logger.info(f"Subscription created event received for sub: {stripe_subscription_id}, customer: {stripe_customer_id}")
+        
+        # Optional: You might add logic here if subscriptions can be 
+        # created outside the standard checkout flow, e.g., linking customer/sub ID
+        # For now, we primarily rely on checkout.session.completed for initial setup.
+        
+        # Example: Update status if needed (might be redundant if checkout handler runs)
+        # user = db.session.query(User).filter_by(stripe_customer_id=stripe_customer_id).first()
+        # if user and user.subscription_status != 'active':
+        #     user.subscription_status = 'active' # Or based on subscription status
+        #     db.session.commit()
+        #     current_app.logger.info(f"Updated user {user.id} status based on subscription creation")
+
     elif event['type'] == 'customer.subscription.updated':
         subscription = event['data']['object']
         stripe_subscription_id = subscription.get('id')
@@ -410,9 +428,61 @@ def stripe_webhook():
             # Let's return 500 for now to indicate a server-side issue.
             return jsonify({"error": "Internal server error processing cancellation"}), 500
             
-    # Other event types to consider: invoice.payment_failed, invoice.payment_succeeded
+    # === ADDED: Handle successful payment event ===
+    elif event['type'] == 'invoice.paid':
+        invoice = event['data']['object']
+        stripe_customer_id = invoice.get('customer')
+        stripe_subscription_id = invoice.get('subscription') # Can be null for non-subscription invoices
+        
+        current_app.logger.info(f"Invoice paid event received for customer: {stripe_customer_id}, subscription: {stripe_subscription_id}")
+        
+        if stripe_customer_id:
+            user = db.session.query(User).filter_by(stripe_customer_id=stripe_customer_id).first()
+            if user:
+                # Ensure user status reflects active payment
+                if user.subscription_status != 'active':
+                    user.subscription_status = 'active'
+                    # Optionally update paid_through_date based on invoice.period_end
+                    # user.paid_through_date = datetime.datetime.fromtimestamp(invoice['period_end'])
+                    db.session.commit()
+                    current_app.logger.info(f"User {user.id} status updated to active due to invoice payment.")
+                else:
+                    current_app.logger.info(f"Invoice paid for already active user {user.id}.")
+            else:
+                current_app.logger.warning(f"Invoice paid event received for unknown Stripe customer ID: {stripe_customer_id}")
+        else:
+             current_app.logger.warning("Invoice paid event received without a customer ID.")
+
+    # === ADDED: Handle failed payment event ===
+    elif event['type'] == 'invoice.payment_failed':
+        invoice = event['data']['object']
+        stripe_customer_id = invoice.get('customer')
+        stripe_subscription_id = invoice.get('subscription')
+        
+        current_app.logger.warning(f"Invoice payment failed event for customer: {stripe_customer_id}, subscription: {stripe_subscription_id}")
+        
+        if stripe_customer_id:
+            user = db.session.query(User).filter_by(stripe_customer_id=stripe_customer_id).first()
+            if user:
+                # Update status to indicate payment issue
+                # Use a specific status like 'past_due' or 'payment_failed'
+                if user.subscription_status != 'payment_failed': # Avoid redundant updates
+                    user.subscription_status = 'payment_failed' 
+                    # Optionally clear paid_through_date or leave as is
+                    db.session.commit()
+                    current_app.logger.info(f"User {user.id} status updated to payment_failed.")
+                    # TODO: Trigger dunning email/notification to user
+                else:
+                    current_app.logger.info(f"Repeated payment failure for user {user.id}.")
+
+            else:
+                current_app.logger.warning(f"Invoice payment failed event for unknown Stripe customer ID: {stripe_customer_id}")
+        else:
+             current_app.logger.warning("Invoice payment failed event received without a customer ID.")
+             
     else:
-        current_app.logger.info(f"Unhandled event type {event['type']}")
+        # Unexpected event type
+        current_app.logger.warning(f"Unhandled Stripe event type: {event['type']}")
 
     # Return a 200 response to acknowledge receipt of the event
-    return jsonify({"received": True}), 200
+    return jsonify({"status": "success"}), 200
