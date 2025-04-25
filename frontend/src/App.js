@@ -19,7 +19,9 @@ import {
   PricingPage,
   AccountSettings,
   PaymentSuccessPage,
-  PaymentCancelPage
+  PaymentCancelPage,
+  PrivacyPolicyPage,
+  TermsOfServicePage
 } from './pages';
 import { 
   Navigation, 
@@ -28,6 +30,7 @@ import {
 } from './components';
 import { ErrorBoundary } from 'react-error-boundary';
 import { injectDebugger } from './debug-helper';
+import Footer from './components/Footer';
 
 // Initialize debug tools
 injectDebugger();
@@ -89,8 +92,11 @@ function App() {
                 <Route path="/account-settings" element={<ProtectedIFSRoute><AccountSettings /></ProtectedIFSRoute>} />
                 <Route path="/payment/success" element={<ProtectedRoute><PaymentSuccessPage /></ProtectedRoute>} />
                 <Route path="/payment/cancel" element={<ProtectedRoute><PaymentCancelPage /></ProtectedRoute>} />
+                <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                <Route path="/terms-of-service" element={<TermsOfServicePage />} />
               </Routes>
             </Box>
+            <Footer />
           </div>
         </Router>
       </AuthProvider>

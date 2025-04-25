@@ -263,7 +263,7 @@ export const AuthProvider = ({ children }) => {
         try {
           console.log('Checking stored token validity...');
           // Use axios directly since headers are set globally
-          const response = await axios.get(`${API_BASE_URL}/api/me`); 
+          const response = await axios.get(`${API_BASE_URL}/api/auth/me`); 
           console.log('Token appears valid, user data:', response.data);
           if (isMounted) {
             setCurrentUser(response.data); 
@@ -315,7 +315,7 @@ export const AuthProvider = ({ children }) => {
     }
     console.log('Explicitly fetching user profile...');
     try {
-        const response = await axios.get(`${API_BASE_URL}/api/me`);
+        const response = await axios.get(`${API_BASE_URL}/api/auth/me`);
         console.log('User profile fetched successfully:', response.data);
         setCurrentUser(response.data);
     } catch (err) {
@@ -374,8 +374,8 @@ export const AuthProvider = ({ children }) => {
     setError('');
     setDetailedError(null);
     try {
-      console.log(`Attempting login for user: ${username} to ${API_BASE_URL}/api/login`);
-      const response = await axios.post(`${API_BASE_URL}/api/login`, {
+      console.log(`Attempting login for user: ${username} to ${API_BASE_URL}/api/auth/login`);
+      const response = await axios.post(`${API_BASE_URL}/api/auth/login`, {
         username,
         password
       });
