@@ -36,11 +36,11 @@ function PaymentSuccessPage() {
                     <AlertTitle>Thank You!</AlertTitle>
                     Your subscription has been activated.
                 </Alert>
-                {sessionId && 
+                {/* {sessionId && 
                     <Typography variant="caption" color="text.secondary">
                         Session ID: {sessionId}
                     </Typography>
-                }
+                } */}
                 <Box sx={{ mt: 3, display: 'flex', gap: 2 }}>
                     <Button component={RouterLink} to="/" variant="contained">
                         Go to Dashboard

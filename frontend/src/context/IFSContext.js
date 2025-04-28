@@ -32,48 +32,29 @@ export const IFSProvider = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [journals, setJournals] = useState([]);
-  const [localToken, setLocalToken] = useState(null);
 
-  // Keep local token in sync with auth token
+  // Simplified effect to fetch system when authenticated
   useEffect(() => {
-    if (authToken) {
-      console.log(`IFSContext received new token: ${authToken.substring(0, 10)}...`);
-      setLocalToken(authToken);
+    if (isAuthenticated) {
+      console.log(`IFSContext: isAuthenticated is true, calling fetchSystem.`);
+      fetchSystem(); 
     } else {
-      setLocalToken(null);
-    }
-  }, [authToken]);
-
-  useEffect(() => {
-    if (isAuthenticated && localToken) {
-      console.log(`IFSContext using token for fetchSystem: ${localToken.substring(0, 10)}...`);
-      fetchSystem();
-    } else {
-      console.log('IFSContext: Not authenticated or no token available');
+      console.log('IFSContext: isAuthenticated is false, clearing system data.');
       setSystem(null);
+      setJournals([]); // Also clear journals on logout
       setLoading(false);
     }
-  }, [isAuthenticated, localToken]);
+    // Dependency solely on isAuthenticated now
+  }, [isAuthenticated]);
 
   const fetchSystem = async () => {
     try {
       setLoading(true);
+      setError(null);
       
-      // Check if token is available before making API call
-      if (!localToken) {
-        console.error('No authentication token available for fetchSystem');
-        setError('Authentication required. Please log in.');
-        return;
-      }
+      console.log('IFSContext: Executing fetchSystem...');
       
-      console.log(`Using token for fetchSystem: ${localToken.substring(0, 10)}...`);
-      
-      const response = await axios.get(`${API_BASE_URL}/api/system`, {
-        headers: {
-          'Authorization': `Bearer ${localToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await axios.get(`${API_BASE_URL}/api/system`);
       
       console.log('System fetched successfully:', response.data);
       console.log('System ID:', response.data.id);
@@ -81,7 +62,6 @@ export const IFSProvider = ({ children }) => {
       console.log('Parts:', Object.keys(response.data.parts || {}).length);
       
       setSystem(response.data);
-      setError(null);
       
       // After successfully fetching the system, also fetch journals
       if (response.data && response.data.id) {
@@ -118,14 +98,6 @@ export const IFSProvider = ({ children }) => {
 
   const addPart = async (partData) => {
     try {
-      // Check if token is available before making API call
-      if (!localToken) {
-        console.error('No authentication token available for API call');
-        throw new Error('Authentication token not available. Please log in again.');
-      }
-      
-      console.log(`Using token for API call: ${localToken.substring(0, 10)}...`);
-      
       const formattedPart = {
         ...partData,
         feelings: Array.isArray(partData.feelings) ? partData.feelings : [],
@@ -160,19 +132,7 @@ export const IFSProvider = ({ children }) => {
         formattedPart.role = null;
       }
 
-      // Enhanced debugging - Log API URL and headers
-      console.log('API URL:', `${API_BASE_URL}/api/parts`);
-      console.log('Request headers:', {
-        'Authorization': `Bearer ${localToken ? localToken.substring(0, 10) + '...' : 'null'}`,
-        'Content-Type': 'application/json'
-      });
-
-      const response = await axios.post(`${API_BASE_URL}/api/parts`, formattedPart, {
-        headers: {
-          'Authorization': `Bearer ${localToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await axios.post(`${API_BASE_URL}/api/parts`, formattedPart);
       
       console.log('Part created successfully:', response.data);
       await fetchSystem(); // Refresh system data
@@ -212,11 +172,7 @@ export const IFSProvider = ({ children }) => {
   const updatePart = async (partId, updates) => {
     try {
       console.log('Sending update with data:', JSON.stringify(updates, null, 2));
-      const response = await axios.put(`${API_BASE_URL}/api/parts/${partId}`, updates, {
-        headers: {
-          'Authorization': `Bearer ${localToken}`
-        }
-      });
+      const response = await axios.put(`${API_BASE_URL}/api/parts/${partId}`, updates);
       await fetchSystem(); // Refresh system data
       return response.data;
     } catch (err) {
@@ -233,20 +189,10 @@ export const IFSProvider = ({ children }) => {
 
   const fetchJournals = async (systemId) => {
     try {
-      // Make sure we have a token
-      if (!localToken) {
-        console.error('Cannot fetch journals: No authentication token available');
-        return [];
-      }
-      
-      console.log('Fetching journals with token:', localToken ? `${localToken.substring(0, 10)}...` : 'none');
+      console.log('Fetching journals...');
       console.log('Using system ID for journals:', systemId);
       
       const response = await axios.get(`${API_BASE_URL}/api/journals`, {
-        headers: {
-          'Authorization': `Bearer ${localToken}`,
-          'Content-Type': 'application/json'
-        },
         params: {
           system_id: systemId
         }
@@ -285,12 +231,6 @@ export const IFSProvider = ({ children }) => {
 
   const getJournals = async () => {
     try {
-      // Make sure we have a token
-      if (!localToken) {
-        console.error('Cannot fetch journals: No authentication token available');
-        return []; // Return empty array instead of throwing error
-      }
-      
       // Check if system exists
       if (!system || !system.id) {
         console.error('Cannot fetch journals: No system available');
@@ -308,41 +248,25 @@ export const IFSProvider = ({ children }) => {
 
   const addJournal = async (journalData) => {
     try {
-      // Ensure required fields are present
-      const validatedData = {
-        title: journalData.title || `Journal Entry ${new Date().toLocaleString()}`,
-        content: journalData.content || '',
-        part_id: journalData.part_id || null,
-        metadata: journalData.metadata || ''
-      };
-
-      const response = await axios.post(`${API_BASE_URL}/api/journals`, validatedData, {
-        headers: {
-          'Authorization': `Bearer ${localToken}`
-        }
-      });
-      await getJournals(); // Refresh journals data
+      const response = await axios.post(`${API_BASE_URL}/api/journals`, journalData);
+      await fetchJournals(journalData.system_id); // Refresh journals
       return response.data;
     } catch (err) {
       console.error('Error adding journal entry:', err);
-      throw err;
+      setError('Failed to add journal entry');
+      throw err; // Re-throw to allow component-level handling
     }
   };
 
   const addRelationship = async (relationshipData) => {
     try {
-      console.log('IFSContext: Sending relationship data:', relationshipData);
-      const response = await axios.post(`${API_BASE_URL}/api/relationships`, relationshipData, {
-        headers: {
-          'Authorization': `Bearer ${localToken}`
-        }
-      });
-      console.log('IFSContext: Server response:', response.data);
-      await fetchSystem(); // Refresh system data
+      const response = await axios.post(`${API_BASE_URL}/api/relationships`, relationshipData);
+      await fetchSystem(); // Refresh entire system to get new relationship
       return response.data;
     } catch (err) {
-      console.error('IFSContext: Error adding relationship:', err.response?.data || err);
-      throw new Error(err.response?.data?.error || err.message);
+      console.error('Error adding relationship:', err);
+      setError('Failed to add relationship');
+      throw err;
     }
   };
 
@@ -350,12 +274,7 @@ export const IFSProvider = ({ children }) => {
     try {
       const response = await axios.put(
         `${API_BASE_URL}/api/relationships/${relationshipId}`, 
-        updates,
-        {
-          headers: {
-            'Authorization': `Bearer ${localToken}`
-          }
-        }
+        updates
       );
       await fetchSystem();
       return response.data;
@@ -367,11 +286,7 @@ export const IFSProvider = ({ children }) => {
 
   const deleteRelationship = async (relationshipId) => {
     try {
-      await axios.delete(`${API_BASE_URL}/api/relationships/${relationshipId}`, {
-        headers: {
-          'Authorization': `Bearer ${localToken}`
-        }
-      });
+      await axios.delete(`${API_BASE_URL}/api/relationships/${relationshipId}`);
       await fetchSystem();
     } catch (err) {
       console.error('Error deleting relationship:', err);
@@ -381,11 +296,7 @@ export const IFSProvider = ({ children }) => {
 
   const deletePart = async (partId) => {
     try {
-      await axios.delete(`${API_BASE_URL}/api/parts/${partId}`, {
-        headers: {
-          'Authorization': `Bearer ${localToken}`
-        }
-      });
+      await axios.delete(`${API_BASE_URL}/api/parts/${partId}`);
       await fetchSystem(); // Refresh system data
     } catch (err) {
       console.error('Error deleting part:', err);
@@ -395,11 +306,7 @@ export const IFSProvider = ({ children }) => {
 
   const updatePartOrder = async (newOrder) => {
     try {
-      await axios.put(`${API_BASE_URL}/api/parts/order`, { order: newOrder }, {
-        headers: {
-          'Authorization': `Bearer ${localToken}`
-        }
-      });
+      await axios.put(`${API_BASE_URL}/api/parts/order`, { order: newOrder });
       await fetchSystem(); // Refresh system data
     } catch (err) {
       console.error('Error updating part order:', err);
@@ -412,19 +319,18 @@ export const IFSProvider = ({ children }) => {
     loading,
     error,
     journals,
-    isAuthenticated,
-    localToken,
     fetchSystem,
     addPart,
     updatePart,
-    updatePartOrder,
-    addJournal,
-    getJournals,
+    deletePart,
     fetchJournals,
+    getJournals,
+    addJournal,
     addRelationship,
     updateRelationship,
     deleteRelationship,
-    deletePart
+    updatePartOrder,
+    isAuthenticated,
   };
 
   return (

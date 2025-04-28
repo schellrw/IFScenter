@@ -18,6 +18,7 @@ import BarChartIcon from '@mui/icons-material/BarChart';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import { format, formatDistanceToNow, parseISO, isValid } from 'date-fns';
 import { useIFS } from '../context/IFSContext';
+import { useAuth } from '../context/AuthContext';
 import { REFLECTIVE_PROMPTS } from '../constants';
 import { PartsDistributionChart, EmotionsChart, MiniSystemMap } from '../components';
 import { getGuidedSessions } from '../utils/api';
@@ -122,6 +123,7 @@ const getStableTimestamp = (id, rawTimestamp) => {
 const Dashboard = () => {
   const ifsContextValue = useIFS(); // Get the whole context object
   const { system, loading: ifsLoading, journals, isAuthenticated, localToken } = ifsContextValue; // Destructure
+  const { fetchUserProfile } = useAuth(); // Get fetchUserProfile from AuthContext
 
   // Remove console logs added for debugging
   // console.log("Dashboard Render - Raw useIFS() value:", ifsContextValue);
@@ -251,7 +253,7 @@ const Dashboard = () => {
         try {
           // Log *before* calling getGuidedSessions
           if (DEBUG) console.log("Attempting to call getGuidedSessions...");
-          const response = await getGuidedSessions(localToken); 
+          const response = await getGuidedSessions(); 
           // Log raw session response
           console.log("Raw response from getGuidedSessions:", response);
           if (response && response.sessions) {
@@ -560,7 +562,7 @@ const Dashboard = () => {
       isMounted = false; 
     };
     // Bring back ifsLoading dependency to handle the initial loading state correctly
-  }, [isAuthenticated, ifsLoading, system, journals, lastUpdateCheck, currentPrompt, previousPartsState, localToken]); 
+  }, [isAuthenticated, ifsLoading, system, journals, lastUpdateCheck, currentPrompt, previousPartsState]); 
 
   // Memoize the parts and relationships arrays for the MiniSystemMap
   // eslint-disable-next-line react-hooks/exhaustive-deps

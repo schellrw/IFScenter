@@ -24,9 +24,9 @@ const PartsDistributionChart = ({ parts, height = 200 }) => {
     // Clear previous chart
     d3.select(svgRef.current).selectAll('*').remove();
     
-    // Separate 'Self' part if it exists, checking for 'Core Self' role
-    const selfPart = parts.find(p => p.role?.toLowerCase() === 'core self');
-    const otherParts = parts.filter(p => p.role?.toLowerCase() !== 'core self');
+    // Separate 'Self' part if it exists, using 'self' (case-insensitive)
+    const selfPart = parts.find(p => p.role?.toLowerCase() === 'self');
+    const otherParts = parts.filter(p => p.role?.toLowerCase() !== 'self');
     
     // Get role counts for non-Self parts
     const roleCounts = {};

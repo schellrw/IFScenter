@@ -511,10 +511,22 @@ def add_session_message(session_id):
         needs_commit = False # Reset flag after commit
 
         # --- Return Response --- 
-        # Return both the saved user message and the saved guide message
+        # Construct usage info
+        # Ensure limit is defined (it should be from the earlier check)
+        user_limit = float('inf') # Default to infinity for unlimited
+        if user.subscription_tier != 'unlimited':
+            user_limit = 30 if user.subscription_tier == 'pro' else 10
+            
+        usage_info = {
+            "dailyMessageCount": user.daily_messages_used,
+            "dailyMessageLimit": user_limit
+        }
+        
+        # Return both the saved user message and the saved guide message, plus usage info
         return jsonify({
             "userMessage": saved_user_message, 
-            "guideMessage": saved_guide_message
+            "guideMessage": saved_guide_message,
+            "usageInfo": usage_info # Add the usage info here
         }), 201
 
     except Exception as e:

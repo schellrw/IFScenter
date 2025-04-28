@@ -30,7 +30,7 @@ const Navigation = () => {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [anchorEl, setAnchorEl] = React.useState(null);
   const [logoutDialogOpen, setLogoutDialogOpen] = React.useState(false);
-  const { currentUser, logout } = useAuth();
+  const { isAuthenticated, logout } = useAuth();
   
   const handleMenuClick = (event) => {
     setAnchorEl(event.currentTarget);
@@ -76,7 +76,7 @@ const Navigation = () => {
   };
   
   // Add Pricing and Account Settings to navItems for logged-in users
-  const navItems = currentUser ? [
+  const navItems = isAuthenticated ? [
     { label: 'Dashboard', path: '/', icon: null },
     { label: 'Parts', path: '/parts', icon: null },
     { label: 'System Map', path: '/system-map', icon: null },
@@ -108,7 +108,7 @@ const Navigation = () => {
           
           <Box sx={{ flexGrow: 1 }} />
           
-          {currentUser ? (
+          {isAuthenticated ? (
             <>
               {isMobile ? (
                 <>

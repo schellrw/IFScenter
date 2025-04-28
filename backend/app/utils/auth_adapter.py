@@ -15,7 +15,7 @@ from werkzeug.local import LocalProxy
 
 # Import supabase client properly for the package structure
 from backend.app.utils.supabase_client import supabase
-from backend.app.models import db, User
+from backend.app.models import db, User, IFSSystem, Part
 
 logger = logging.getLogger(__name__)
 
@@ -170,11 +170,16 @@ def auth_required(f):
                     }
                     
                     # Check if user exists in the database and create if not
-                    from backend.app.models import db, User
+                    from backend.app.models import db, User, IFSSystem, Part
+                    
+                    user_exists_locally = False
+                    user_id_uuid = uuid.UUID(user_data.user.id)
                     
                     # First check by ID
-                    user = User.query.filter_by(id=user_data.user.id).first()
-                    if not user:
+                    user = User.query.filter_by(id=user_id_uuid).first()
+                    if user:
+                        user_exists_locally = True
+                    else:
                         # Then check by email - maybe user exists but with different ID
                         email_user = User.query.filter_by(email=user_data.user.email).first()
                         
@@ -182,13 +187,15 @@ def auth_required(f):
                             # User exists with this email but different ID - update the ID
                             logger.info(f"Updating existing user ID to match Supabase: {user_data.user.email}")
                             try:
-                                email_user.id = uuid.UUID(user_data.user.id)
+                                email_user.id = user_id_uuid
                                 db.session.commit()
-                                logger.info(f"Updated user ID successfully to: {email_user.id}")
-                                # User now exists with correct ID
+                                user_exists_locally = True # User now exists with correct ID
+                                user = email_user # Use this user object going forward
+                                logger.info(f"Updated user ID successfully to: {user.id}")
                             except Exception as e:
                                 db.session.rollback()
                                 logger.error(f"Failed to update user ID: {str(e)}")
+                                # Proceed cautiously, user might be in inconsistent state
                         else:
                             # No user with this ID or email - try to create new
                             logger.info(f"Creating new user record for Supabase user: {user_data.user.email}")
@@ -215,17 +222,78 @@ def auth_required(f):
                                 password=random_password
                             )
                             # Set the id explicitly to match the Supabase Auth id
-                            new_user.id = uuid.UUID(user_data.user.id)
+                            new_user.id = user_id_uuid
                             
                             try:
                                 db.session.add(new_user)
-                                db.session.commit()
-                                logger.info(f"Created new user record with ID: {new_user.id} and username: {username}")
+                                # Commit here to ensure user exists before adding system/part
+                                db.session.commit() 
+                                user_exists_locally = True
+                                user = new_user # Use the newly created user object
+                                logger.info(f"Created new user record with ID: {user.id} and username: {username}")
                             except Exception as e:
                                 db.session.rollback()
                                 logger.error(f"Failed to create user record: {str(e)}")
-                                # Continue anyway to prevent login failures
+                                # If user creation failed, we cannot proceed to create system/part
+                                # Maybe return an error? For now, log and continue.
                     
+                    # --- Add System/Part Creation Logic --- 
+                    # If a user record was just created OR successfully found/updated,
+                    # check if they have an IFSSystem and create if not.
+                    if user_exists_locally and user: 
+                        system = IFSSystem.query.filter_by(user_id=user.id).first()
+                        system_created_now = False # Flag to track if system was created in this request
+                        if not system:
+                            logger.info(f"No IFSSystem found for user {user.id}. Creating system and default 'Self' part.")
+                            try:
+                                new_system = IFSSystem(user_id=user.id)
+                                db.session.add(new_system)
+                                db.session.flush() # Get the new_system ID
+                                system = new_system # Use the newly created system object
+                                system_created_now = True
+                                
+                                # --- Create Self Part ONLY if System was just created --- 
+                                self_part = Part(
+                                    name="Self", 
+                                    system_id=str(system.id),
+                                    role="Self", 
+                                    description="The compassionate core consciousness that can observe and interact with other parts"
+                                )
+                                db.session.add(self_part)
+                                # --- End Create Self Part --- 
+                                
+                                db.session.commit()
+                                logger.info(f"Successfully created IFSSystem ({system.id}) and Self part for user {user.id}")
+                            except Exception as e:
+                                db.session.rollback()
+                                logger.error(f"Failed to create IFSSystem or Self part for user {user.id}: {str(e)}")
+                                system = None # Ensure system is None if creation failed
+                                system_created_now = False
+                        else:
+                            logger.debug(f"User {user.id} already has an IFSSystem ({system.id}). Skipping system creation.")
+                        
+                        # --- Check/Create Self Part if System Existed but Part Might Be Missing --- 
+                        if system and not system_created_now: # Only check if system existed before this request
+                            self_part_exists = Part.query.filter_by(system_id=str(system.id), role='Self').first()
+                            if not self_part_exists:
+                                logger.warning(f"IFSSystem {system.id} exists for user {user.id}, but 'Self' part is missing. Creating Self part.")
+                                try:
+                                     new_self_part = Part(
+                                         name="Self", 
+                                         system_id=str(system.id),
+                                         role="Self", 
+                                         description="The compassionate core consciousness that can observe and interact with other parts"
+                                     )
+                                     db.session.add(new_self_part)
+                                     db.session.commit()
+                                     logger.info(f"Successfully created missing 'Self' part for system {system.id}.")
+                                except Exception as e:
+                                     db.session.rollback()
+                                     logger.error(f"Failed to create missing 'Self' part for system {system.id}: {str(e)}")
+                        # --- End Check/Create Self Part --- 
+                                     
+                    # --- End System/Part Creation Logic --- 
+
                     return f(*args, **kwargs)
                 except Exception as e:
                     logger.error(f"Supabase auth error: {str(e)}")
