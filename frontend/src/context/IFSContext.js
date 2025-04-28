@@ -249,14 +249,46 @@ export const IFSProvider = ({ children }) => {
   const addJournal = async (journalData) => {
     try {
       const response = await axios.post(`${API_BASE_URL}/api/journals`, journalData);
-      await fetchJournals(journalData.system_id); // Refresh journals
+      
+      // Refresh journals list after adding
+      if (response.data.success) {
+        await getJournals();
+      }
+      
       return response.data;
     } catch (err) {
-      console.error('Error adding journal entry:', err);
-      setError('Failed to add journal entry');
-      throw err; // Re-throw to allow component-level handling
+      console.error('Error adding journal:', err);
+      if (err.response) {
+         console.error("API Error Response:", err.response.data); 
+         throw err; // Rethrow the original error object
+      }
+      throw err; // Rethrow if it's not an axios error
     }
   };
+
+  // --- NEW: Function to delete a journal entry ---
+  const deleteJournal = async (journalId) => {
+    try {
+      const response = await axios.delete(`${API_BASE_URL}/api/journals/${journalId}`);
+      
+      // Refresh journals list after deleting
+      if (response.data.success) {
+        await getJournals(); 
+      }
+      
+      return response.data;
+    } catch (err) {
+      console.error(`Error deleting journal ${journalId}:`, err);
+      if (err.response) {
+         console.error("API Error Response:", err.response.data);
+         // Rethrow to allow JournalPage to catch and display the specific error
+         throw err; 
+      }
+      // Rethrow for non-API errors
+      throw err;
+    }
+  };
+  // --- END NEW ---
 
   const addRelationship = async (relationshipData) => {
     try {
@@ -326,6 +358,7 @@ export const IFSProvider = ({ children }) => {
     fetchJournals,
     getJournals,
     addJournal,
+    deleteJournal,
     addRelationship,
     updateRelationship,
     deleteRelationship,
