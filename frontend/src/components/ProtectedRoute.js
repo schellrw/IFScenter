@@ -16,9 +16,11 @@ export const ProtectedRoute = ({ children }) => {
   }
   
   if (!isAuthenticated) {
+    console.log('[ProtectedRoute] Not authenticated after loading, redirecting to login.');
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   
+  console.log('[ProtectedRoute] Authenticated, rendering children.');
   return children;
 };
 

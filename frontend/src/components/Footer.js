@@ -11,10 +11,7 @@ function Footer() {
                 py: 3, 
                 px: 2, 
                 mt: 'auto', // Pushes footer to bottom if content is short
-                backgroundColor: (theme) => 
-                    theme.palette.mode === 'light' 
-                    ? theme.palette.grey[200] 
-                    : theme.palette.grey[800],
+                backgroundColor: 'transparent',
                 borderTop: '1px solid',
                 borderColor: (theme) => theme.palette.divider,
             }}

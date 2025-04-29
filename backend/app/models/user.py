@@ -24,8 +24,8 @@ class User(db.Model):
     password_hash = Column(String(128), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    # New Profile Fields
-    full_name = Column(String, nullable=True)
+    # Rename full_name to first_name
+    first_name = Column(String(100), nullable=True) # Renamed from full_name, adjusted length potentially
     avatar_url = Column(String, nullable=True) # URL from Supabase Storage
 
     # New Subscription Fields
@@ -42,19 +42,19 @@ class User(db.Model):
 
     systems = relationship('IFSSystem', backref='user', lazy=True, cascade='all, delete-orphan')
     
-    def __init__(self, username: str, email: str, password: str, full_name: Optional[str] = None):
+    def __init__(self, username: str, email: str, password: str, first_name: Optional[str] = None):
         """Initialize a new user.
         
         Args:
             username: A unique username.
             email: User's email address.
             password: Plain text password (will be hashed).
-            full_name: Optional user's full name.
+            first_name: Optional user's first name.
         """
         self.username = username
         self.email = email
         self.password_hash = bcrypt.hash(password)
-        self.full_name = full_name
+        self.first_name = first_name # Changed from full_name
     
     def verify_password(self, password: str) -> bool:
         """Verify a password against the stored hash.
@@ -81,7 +81,7 @@ class User(db.Model):
             "id": str(self.id) if self.id else None,
             "username": self.username,
             "email": self.email,
-            "full_name": self.full_name,
+            "first_name": self.first_name, # Changed from full_name
             "avatar_url": self.avatar_url,
             "subscription_tier": self.subscription_tier,
             "created_at": created_at_iso

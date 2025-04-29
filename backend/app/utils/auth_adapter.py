@@ -201,6 +201,7 @@ def auth_required(f):
                             logger.info(f"Creating new user record for Supabase user: {user_data.user.email}")
                             
                             # Extract username from metadata or use email as fallback
+                            # Keep username generation for the DB column requirement
                             username_base = user_data.user.user_metadata.get('username', user_data.user.email.split('@')[0])
                             
                             # Check if username already exists and modify if needed
@@ -209,7 +210,24 @@ def auth_required(f):
                             while User.query.filter_by(username=username).first():
                                 username = f"{username_base}{username_counter}"
                                 username_counter += 1
+                                
+                            # Extract first name from metadata (attempt parsing)
+                            extracted_first_name = None
+                            # Prioritize 'first_name' if explicitly set in metadata (e.g., from our registration)
+                            if 'first_name' in user_data.user.user_metadata:
+                                extracted_first_name = user_data.user.user_metadata.get('first_name')
+                            # Fallback: try parsing 'full_name' or 'name' from metadata (common OAuth fields)
+                            elif 'full_name' in user_data.user.user_metadata:
+                                full_name = user_data.user.user_metadata.get('full_name', '')
+                                if full_name and isinstance(full_name, str):
+                                    extracted_first_name = full_name.split(' ')[0]
+                            elif 'name' in user_data.user.user_metadata:
+                                full_name = user_data.user.user_metadata.get('name', '')
+                                if full_name and isinstance(full_name, str):
+                                    extracted_first_name = full_name.split(' ')[0]
                             
+                            logger.info(f"Extracted first name: {extracted_first_name}")
+                                
                             # Create a new user with a random password (won't be used for auth since we're using Supabase)
                             import secrets
                             import string
@@ -219,7 +237,8 @@ def auth_required(f):
                             new_user = User(
                                 username=username,
                                 email=user_data.user.email,
-                                password=random_password
+                                password=random_password,
+                                first_name=extracted_first_name # Pass extracted first name
                             )
                             # Set the id explicitly to match the Supabase Auth id
                             new_user.id = user_id_uuid
@@ -257,7 +276,9 @@ def auth_required(f):
                                     name="Self", 
                                     system_id=str(system.id),
                                     role="Self", 
-                                    description="The compassionate core consciousness that can observe and interact with other parts"
+                                    description="The centered, compassionate Self that is the goal of IFS therapy.", 
+                                    feelings=["Calm", "curious", "compassionate", "connected", "clear", "confident", "creative", "courageous"],
+                                    beliefs=["All parts are welcome. I can hold space for all experiences."]
                                 )
                                 db.session.add(self_part)
                                 # --- End Create Self Part --- 
@@ -278,11 +299,14 @@ def auth_required(f):
                             if not self_part_exists:
                                 logger.warning(f"IFSSystem {system.id} exists for user {user.id}, but 'Self' part is missing. Creating Self part.")
                                 try:
+                                     # Create the missing Self part with DETAILED attributes
                                      new_self_part = Part(
                                          name="Self", 
                                          system_id=str(system.id),
                                          role="Self", 
-                                         description="The compassionate core consciousness that can observe and interact with other parts"
+                                         description="The centered, compassionate Self that is the goal of IFS therapy.",
+                                         feelings=["Calm", "curious", "compassionate", "connected", "clear", "confident", "creative", "courageous"],
+                                         beliefs=["All parts are welcome. I can hold space for all experiences."]
                                      )
                                      db.session.add(new_self_part)
                                      db.session.commit()
@@ -322,12 +346,12 @@ def auth_required(f):
     
     return decorated
 
-def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, Any], str, Optional[str]]:
+def register_user(firstName: Optional[str], email: str, password: str) -> Tuple[Dict[str, Any], str, Optional[str]]:
     """
     Register a new user using the appropriate authentication system.
     
     Args:
-        username: Username for the new user
+        firstName: Optional first name for the new user
         email: Email address
         password: Password
         
@@ -340,14 +364,17 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
     if actually_use_supabase:
         try:
             # Register with Supabase
+            # Store firstName in user_metadata
+            signup_options = {
+                "data": {
+                    "first_name": firstName if firstName else '' # Store as first_name, ensure it's at least an empty string
+                }
+            }
+            
             signup_data = supabase.client.auth.sign_up({
                 "email": email,
                 "password": password,
-                "options": {
-                    "data": {
-                        "username": username
-                    }
-                }
+                "options": signup_options
             })
             
             logger.debug(f"Supabase signup response: {signup_data}")
@@ -358,7 +385,8 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
             user_data = {
                 "id": signup_data.user.id,
                 "email": signup_data.user.email,
-                "username": username
+                "firstName": firstName, # Return firstName
+                # We might not have a reliable username here unless derived
             }
             
             # Extract tokens if session exists
@@ -381,24 +409,36 @@ def register_user(username: str, email: str, password: str) -> Tuple[Dict[str, A
         from backend.app.models import db, User
         from flask_jwt_extended import create_access_token
         
-        # Check for existing user
-        existing_user = User.query.filter_by(username=username).first()
-        if existing_user:
-            raise ValueError("Username already exists")
-            
+        # Check for existing email only
         existing_email = User.query.filter_by(email=email).first()
         if existing_email:
             raise ValueError("Email already exists")
         
-        # Create new user
-        user = User(username=username, email=email, password=password)
+        # Generate a unique username from email prefix
+        username_base = email.split('@')[0]
+        username = username_base
+        username_counter = 1
+        while User.query.filter_by(username=username).first():
+            username = f"{username_base}{username_counter}"
+            username_counter += 1
+            
+        logger.info(f"Generated unique username '{username}' for email {email}")
+            
+        # Create new user with generated username and provided firstName
+        # ASSUMPTION: User model has a 'first_name' field/column
+        user = User(username=username, email=email, password=password, first_name=firstName) 
         db.session.add(user)
         db.session.commit()
         
         # Create access token
         access_token = create_access_token(identity=str(user.id))
         
-        return user.to_dict(), access_token, None # Return None for refresh token in JWT mode
+        # Get user data, potentially including firstName
+        user_dict = user.to_dict() 
+        if firstName and 'firstName' not in user_dict: # Add if to_dict doesn't include it
+            user_dict['firstName'] = firstName
+            
+        return user_dict, access_token, None # Return None for refresh token in JWT mode
 
 def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str, Optional[str]]:
     """
@@ -456,13 +496,32 @@ def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str, Optio
                 logger.warning(f"Supabase login failed or session missing for {user_email}")
                 raise ValueError("Invalid email or password, or account requires confirmation.")
                 
-            user_data = {
-                "id": login_data.user.id,
-                "email": login_data.user.email,
-                "username": login_data.user.user_metadata.get('username', username)
-            }
+            # Fetch the full user profile from the local database using the Supabase user ID
+            local_user = None
+            try:
+                from backend.app.models import User # Ensure User model is imported
+                local_user = User.query.get(login_data.user.id)
+                if local_user:
+                    user_data = local_user.to_dict() # Use the full profile from DB
+                    logger.info(f"Fetched local profile for Supabase user {login_data.user.id}")
+                else:
+                    logger.warning(f"Supabase user {login_data.user.id} not found in local DB, returning basic info.")
+                    # Fallback to basic info if local user not found (should ideally not happen)
+                    user_data = {
+                        "id": login_data.user.id,
+                        "email": login_data.user.email,
+                        "username": login_data.user.user_metadata.get('username', username)
+                    }
+            except Exception as db_err:
+                logger.error(f"Error fetching local user profile for {login_data.user.id}: {db_err}")
+                # Fallback if DB query fails
+                user_data = {
+                    "id": login_data.user.id,
+                    "email": login_data.user.email,
+                    "username": login_data.user.user_metadata.get('username', username)
+                }
             
-            logger.info(f"Login successful for user: {user_data['username']} ({user_data['email']})")
+            logger.info(f"Login successful for user: {user_data.get('username', 'N/A')} ({user_data.get('email', 'N/A')})")
             # Return user_data, access_token, refresh_token
             return user_data, login_data.session.access_token, login_data.session.refresh_token
         except Exception as e:
@@ -470,19 +529,4 @@ def login_user(username: str, password: str) -> Tuple[Dict[str, Any], str, Optio
             # Add specific check for invalid login credentials from Supabase/GoTrue
             if "invalid login credentials" in str(e).lower():
                 raise ValueError("Invalid email or password")
-            raise # Re-raise other exceptions
-    else:
-        # Use regular database models and JWT
-        from backend.app.models import User
-        from flask_jwt_extended import create_access_token
-        
-        # Find user
-        user = User.query.filter_by(username=username).first()
-        
-        if not user or not user.verify_password(password):
-            raise ValueError("Invalid username or password")
-        
-        # Create access token
-        access_token = create_access_token(identity=str(user.id))
-        
-        return user.to_dict(), access_token, None # Return None for refresh token in JWT mode 
+            raise # Re-raise other exceptions 

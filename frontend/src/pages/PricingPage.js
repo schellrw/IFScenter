@@ -180,7 +180,7 @@ function PricingPage() {
                         display: 'flex',
                         flexDirection: 'column',
                         border: '1px solid transparent',
-                        boxShadow: '0px 0px 15px 5px rgba(25, 118, 210, 0.3)',
+                        boxShadow: '0px 0px 20px 7px rgba(25, 118, 210, 0.7)',
                         borderRadius: '4px'
                     }}>
                         <CardContent sx={{ flexGrow: 1 }}>

@@ -122,8 +122,8 @@ const getStableTimestamp = (id, rawTimestamp) => {
 
 const Dashboard = () => {
   const ifsContextValue = useIFS(); // Get the whole context object
-  const { system, loading: ifsLoading, journals, isAuthenticated, localToken } = ifsContextValue; // Destructure
-  const { fetchUserProfile } = useAuth(); // Get fetchUserProfile from AuthContext
+  const { system, loading: ifsLoading, journals, isAuthenticated } = ifsContextValue; 
+  const { currentUser } = useAuth(); 
 
   // Remove console logs added for debugging
   // console.log("Dashboard Render - Raw useIFS() value:", ifsContextValue);
@@ -385,17 +385,6 @@ const Dashboard = () => {
         // Log after processing relationships
         if (DEBUG) console.log("allActivity after processing relationships:", [...allActivity]);
         
-        // Helper for comparing arrays (needed for part update check)
-        const arraysEqual = (a, b) => {
-          if (a === b) return true;
-          if (a == null || b == null) return false;
-          if (a.length !== b.length) return false;
-          for (let i = 0; i < a.length; ++i) {
-            if (a[i] !== b[i]) return false;
-          }
-          return true;
-        };
-        
         // Filter, Sort and set state
         const validActivity = allActivity.filter(item => item.timestamp instanceof Date && !isNaN(item.timestamp.getTime()));
         const sortedActivity = validActivity
@@ -565,15 +554,13 @@ const Dashboard = () => {
   }, [isAuthenticated, ifsLoading, system, journals, lastUpdateCheck, currentPrompt, previousPartsState]); 
 
   // Memoize the parts and relationships arrays for the MiniSystemMap
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const partsForMap = useMemo(() => {
     return system && system.parts ? Object.values(system.parts) : [];
-  }, [system?.parts]);
+  }, [system]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const relationshipsForMap = useMemo(() => {
     return system && system.relationships ? Object.values(system.relationships) : [];
-  }, [system?.relationships]);
+  }, [system]);
 
   const handleActivityClick = (type, id) => {
     if (!id) {
@@ -634,9 +621,33 @@ const Dashboard = () => {
   return (
     <Container maxWidth="lg">
       <Box sx={{ my: 4 }}>
-        <Typography variant="h4" component="h1" gutterBottom>
-          IFS System Dashboard
-        </Typography>
+        {/* Container for Title and Welcome Message */}
+        <Box 
+          sx={{
+            display: 'flex', 
+            justifyContent: 'space-between', // Pushes items to ends
+            alignItems: 'baseline', // Aligns text nicely
+            mb: 4 // Add margin below this combined line
+          }}
+        >
+          {/* Dashboard Title - Left Aligned (default) */}
+          <Typography variant="h4" component="h1" >
+            IFS System Dashboard
+          </Typography>
+
+          {/* Personalized Welcome Message - Right Aligned */}
+          {/* Add console log to debug currentUser */}
+          {console.log('[Dashboard] Rendering Welcome. currentUser:', currentUser)}
+          {currentUser && (
+            <Typography 
+              variant="h5" 
+              component="h2" 
+              // Removed alignment and margin props, handled by parent Box
+            >
+              {currentUser.first_name ? `Welcome back, ${currentUser.first_name}!` : "Welcome back!"}
+            </Typography>
+          )}
+        </Box>
 
         <Grid container spacing={3} alignItems="stretch">
           {/* System Overview */}

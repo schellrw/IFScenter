@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom'; // Use Link for internal navigation
 // Use axios directly
 import axios from 'axios'; 
@@ -7,13 +7,15 @@ import {
     Container,
     Typography,
     Paper,
-    Divider,
     Button,
     Box,
     CircularProgress,
     Alert,
-    Chip
+    Chip,
+    TextField,
+    IconButton
 } from '@mui/material';
+import EditIcon from '@mui/icons-material/Edit';
 
 // Get Base URL 
 let API_BASE_URL = process.env.REACT_APP_API_URL;
@@ -29,11 +31,58 @@ function AccountSettings() {
         supabaseUser, 
         currentUser, 
         loading, 
-        isAuthenticated 
+        isAuthenticated, 
+        fetchUserProfile
     } = useAuth();
+    
+    // State for Editing Name
+    const [editMode, setEditMode] = useState(false);
+    const [editableName, setEditableName] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState('');
+
+    // Initialize editableName when currentUser loads or changes
+    useEffect(() => {
+        if (currentUser) {
+            setEditableName(currentUser.first_name || '');
+        }
+    }, [currentUser]);
     
     const [isManagingSubscription, setIsManagingSubscription] = useState(false);
     const [error, setError] = useState(null);
+
+    // Function to handle saving the name
+    const handleSaveName = async () => {
+        setIsSaving(true);
+        setSaveError('');
+        try {
+            // Update endpoint URL to include /auth
+            const response = await axios.put(`${API_BASE_URL}/api/auth/profile`, 
+                { firstName: editableName }, 
+                // Ensure token is sent if using custom JWT or relying on default header
+            );
+            
+            if (response.status === 200) {
+                // Successfully updated
+                await fetchUserProfile(); // Refresh currentUser in AuthContext
+                setEditMode(false);
+            } else {
+                throw new Error(response.data?.message || 'Failed to update profile');
+            }
+        } catch (err) {
+            console.error("Error updating profile:", err);
+            setSaveError(err.response?.data?.message || err.message || 'An error occurred while saving.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Function to cancel editing
+    const handleCancelEdit = () => {
+        setEditableName(currentUser?.first_name || ''); // Reset to original name
+        setEditMode(false);
+        setSaveError('');
+    };
 
     const handleManageSubscription = async () => {
         setIsManagingSubscription(true);
@@ -132,13 +181,54 @@ function AccountSettings() {
 
             <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
                 <Typography variant="h6" gutterBottom>User Information</Typography>
-                {/* Display username from currentUser if available, otherwise N/A */}
-                <Typography><strong>Username:</strong> {currentUser?.username || 'N/A'}</Typography>
-                {/* Display email from supabaseUser (primary source) */}
-                <Typography><strong>Email:</strong> {supabaseUser?.email || 'N/A'}</Typography>
-                {/* Display full name from supabaseUser metadata */}
-                <Typography><strong>Full Name:</strong> {supabaseUser?.user_metadata?.full_name || 'Not set'}</Typography> 
-                {/* TODO: Add Button/Form to edit profile details */}
+                {/* Hide Username */}
+                {/* <Typography><strong>Username:</strong> {currentUser?.username || 'N/A'}</Typography> */}
+                {/* Display email from currentUser */}
+                <Typography sx={{ mb: 1 }}>
+                    <strong>Email:</strong> {currentUser?.email || 'N/A'}
+                </Typography>
+                
+                {/* Name Display/Edit Section */} 
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {!editMode ? (
+                        <>
+                            <Typography>
+                                <strong>Name:</strong> {currentUser?.first_name || 'Not set'}
+                            </Typography>
+                            <IconButton size="small" onClick={() => setEditMode(true)} aria-label="Edit name">
+                                <EditIcon fontSize="inherit" />
+                            </IconButton>
+                        </>
+                    ) : (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                            <TextField 
+                                label="Name"
+                                variant="outlined"
+                                size="small"
+                                fullWidth
+                                value={editableName}
+                                onChange={(e) => setEditableName(e.target.value)}
+                                error={!!saveError}
+                                helperText={saveError}
+                                sx={{ mb: 1 }}
+                            />
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Button 
+                                    variant="contained"
+                                    size="small"
+                                    onClick={handleSaveName}
+                                    disabled={isSaving}
+                                >
+                                    {isSaving ? <CircularProgress size={20} color="inherit"/> : 'Save'}
+                                </Button>
+                                <Button variant="outlined" size="small" onClick={handleCancelEdit} disabled={isSaving}>
+                                    Cancel
+                                </Button>
+                            </Box>
+                        </Box>
+                    )}
+                </Box>
+                
             </Paper>
 
             <Paper elevation={3} sx={{ p: 3 }}>

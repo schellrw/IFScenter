@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # Input validation schemas
 class RegisterSchema(Schema):
     """Registration request schema validation."""
-    username = fields.String(required=True, validate=validate.Length(min=3, max=80))
+    firstName = fields.String(required=False, validate=validate.Length(max=100), data_key='firstName')
     email = fields.Email(required=True)
     password = fields.String(required=True, validate=validate.Length(min=8))
 
@@ -72,11 +72,12 @@ def register():
         logger.warning(f"Registration validation failed: {errors}")
         return jsonify({"error": "Validation failed", "details": errors}), 400
         
-    username = data.get('username')
+    # Extract firstName instead of username
+    firstName = data.get('firstName') # Can be None
     email = data.get('email')
     password = data.get('password')
     
-    logger.info(f"Registration attempt for: {username}, {email}")
+    logger.info(f"Registration attempt for email: {email}, firstName: {firstName}")
     
     # Check if using Supabase auth
     using_supabase = use_supabase_auth
@@ -97,8 +98,8 @@ def register():
             # For now, let register_user handle the check
 
     try:
-        # Call the updated register_user which returns user_data, access_token, refresh_token
-        user_data, access_token, refresh_token = register_user(username, email, password)
+        # Call the updated register_user with firstName
+        user_data, access_token, refresh_token = register_user(firstName, email, password) # Pass firstName
         
         # Determine auth method based on whether refresh_token was returned (only Supabase returns one)
         auth_method = "supabase" if refresh_token else "jwt"
@@ -110,19 +111,21 @@ def register():
             db.session.add(system)
             db.session.flush()
             
-            # Add default "Self" part
+            # Add default "Self" part with DETAILED attributes
             self_part = Part(
                 name="Self", 
                 system_id=str(system.id),
-                role="Self", 
-                description="The compassionate core consciousness that can observe and interact with other parts"
+                role="Self", # Keep role as Self for consistency 
+                description="The centered, compassionate Self that is the goal of IFS therapy.", # Use detailed description
+                feelings=["Calm", "curious", "compassionate", "connected", "clear", "confident", "creative", "courageous"], # Add 8 Cs
+                beliefs=["All parts are welcome. I can hold space for all experiences."] # Add core belief
             )
             db.session.add(self_part)
             db.session.commit()
             
-            logger.info(f"Created system and default 'Self' part for user {username} with ID {user_data.get('id')}")
+            logger.info(f"Created system and default 'Self' part for user {email} with ID {user_data.get('id')}")
         except Exception as system_error:
-            logger.error(f"Error creating system for user {username}: {str(system_error)}")
+            logger.error(f"Error creating system for user {email}: {str(system_error)}")
             # Try to rollback just the system creation
             db.session.rollback()
             # Still return success since the user was created
@@ -135,7 +138,7 @@ def register():
                 "user": user_data
             }), 201
             
-        logger.info(f"User {username} registered successfully with ID: {user_data.get('id')}")
+        logger.info(f"User {email} registered successfully with ID: {user_data.get('id')}")
         response_data = {
             "message": "User registered successfully",
             "access_token": access_token,
@@ -321,6 +324,43 @@ def refresh_token():
         if "invalid refresh token" in str(e).lower() or "invalid grant" in str(e).lower():
              return jsonify({"error": "Invalid or expired refresh token"}), 401
         return jsonify({"error": "Failed to refresh token due to server error"}), 500
+
+@auth_bp.route('/profile', methods=['PUT'])
+@auth_required
+def update_profile():
+    """Update the current authenticated user's profile (e.g., first name)."""
+    if not hasattr(g, 'current_user') or not g.current_user or 'id' not in g.current_user:
+        logger.error("Attempted to access /profile route without valid user in g context.")
+        return jsonify({"error": "Authentication context not found"}), 401
+
+    user_id = g.current_user['id']
+    data = request.json
+    new_first_name = data.get('firstName')
+
+    # Basic validation
+    if not new_first_name or not isinstance(new_first_name, str) or len(new_first_name.strip()) == 0:
+        return jsonify({"error": "Validation failed", "details": {"firstName": "Name cannot be empty."}}), 400
+        
+    if len(new_first_name) > 100: # Match model max length if set
+         return jsonify({"error": "Validation failed", "details": {"firstName": "Name is too long (max 100 characters)."}}), 400
+
+    try:
+        user = db.session.query(User).filter_by(id=user_id).first()
+        if not user:
+            logger.error(f"User with ID {user_id} found in token but not in database for /profile update.")
+            return jsonify({"error": "User profile not found"}), 404
+
+        user.first_name = new_first_name.strip() # Update the first name
+        db.session.commit()
+
+        logger.info(f"User profile updated successfully for user ID: {user_id}")
+        # Return the updated user profile
+        return jsonify(user.to_dict()), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error updating user profile for user ID {user_id}: {e}", exc_info=True)
+        return jsonify({"error": "Internal server error updating profile"}), 500
 
 @auth_bp.route('/logout', methods=['POST'])
 @auth_required
