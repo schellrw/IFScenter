@@ -32,7 +32,7 @@ function AccountSettings() {
         currentUser, 
         loading, 
         isAuthenticated, 
-        fetchUserProfile
+        // fetchUserProfile // No longer needed
     } = useAuth();
     
     // State for Editing Name
@@ -64,7 +64,10 @@ function AccountSettings() {
             
             if (response.status === 200) {
                 // Successfully updated
-                await fetchUserProfile(); // Refresh currentUser in AuthContext
+                // await fetchUserProfile(); // Removed call - AuthContext now handles updates
+                // The profile *should* update automatically in AuthContext
+                // if the PUT request somehow triggers a token refresh or session update.
+                // If not, a manual page refresh might be needed until that logic is refined.
                 setEditMode(false);
             } else {
                 throw new Error(response.data?.message || 'Failed to update profile');
@@ -120,7 +123,7 @@ function AccountSettings() {
         );
     }
 
-    // Additional check: Use isAuthenticated which is based on supabaseUser
+    // Additional check: Use isAuthenticated which is based on supabaseUser OR token
     if (!isAuthenticated) {
          return (
              <Container maxWidth="sm" sx={{ mt: 4 }}>
@@ -188,7 +191,7 @@ function AccountSettings() {
                     <strong>Email:</strong> {currentUser?.email || 'N/A'}
                 </Typography>
                 
-                {/* Name Display/Edit Section */} 
+                {/* Name Display/Edit Section */}
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     {!editMode ? (
                         <>
