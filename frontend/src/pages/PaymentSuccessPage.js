@@ -1,6 +1,9 @@
 import React, { useEffect } from 'react';
 import { Link as RouterLink, useSearchParams } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext'; // Adjust path
+// We might not need useAuth here anymore if we just show a static success message
+// and rely on AuthContext updating the user state globally.
+// If we DO need user info here (e.g., display name), import useAuth but don't call fetchUserProfile.
+// import { useAuth } from '../context/AuthContext';
 import {
     Container,
     Typography,
@@ -14,16 +17,9 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 function PaymentSuccessPage() {
     const [searchParams] = useSearchParams();
     const sessionId = searchParams.get('session_id'); // Optional: get session ID if needed
-    const { fetchUserProfile } = useAuth(); // Get function to refresh user data
+    // const { fetchUserProfile } = useAuth(); // Removed fetchUserProfile usage
 
-    // Fetch updated user profile when the component mounts
-    // to reflect the new subscription status immediately.
-    useEffect(() => {
-        if (fetchUserProfile) {
-            console.log("Payment successful, fetching updated user profile...");
-            fetchUserProfile(); 
-        }
-    }, [fetchUserProfile]);
+    // Removed the useEffect that called fetchUserProfile
 
     return (
         <Container maxWidth="sm" sx={{ mt: 4, textAlign: 'center' }}>

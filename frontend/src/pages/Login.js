@@ -42,13 +42,21 @@ const Login = () => {
     console.log('Google button onClick fired!');
     setLocalError('');
     try {
+      // Get the base URL of the current deployment (works locally and on Netlify)
+      const redirectBaseUrl = window.location.origin;
+
       const { error: supabaseError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
+        options: {
+          // Explicitly set the redirect URL based on the current environment
+          redirectTo: redirectBaseUrl
+        }
       });
       if (supabaseError) {
         console.error('Google Sign-In error:', supabaseError);
         setLocalError(`Google Sign-In failed: ${supabaseError.message}`);
       }
+      // No navigation needed here, Supabase handles the redirect flow
     } catch (err) {
       console.error('Unexpected error during Google Sign-In initiation:', err);
       setLocalError('An unexpected error occurred during Google Sign-In. Please try again.');

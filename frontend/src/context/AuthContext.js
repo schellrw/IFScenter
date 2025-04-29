@@ -34,79 +34,13 @@ export const AuthProvider = ({ children }) => {
   const [refreshToken, setRefreshToken] = useState(localStorage.getItem('refreshToken')); // Custom JWT refresh token
   const [currentUser, setCurrentUser] = useState(null); // User data from custom /me endpoint
   const [initialCheckLoading, setInitialCheckLoading] = useState(true); // Tracks initial Supabase check
-  const [authLoading, setAuthLoading] = useState(true); // NEW: Tracks if auth setup (header etc.) is complete
-  const [error, setError] = useState(''); // Keep general error state
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [authError, setError] = useState(''); // Renamed 'error' to 'authError' for clarity
   // --- End Combined Auth State ---
-
-  // State to track if profile fetch has been done for the current session
-  const [profileFetchAttempted, setProfileFetchAttempted] = useState(false);
-
-  // --- Moved fetchUserProfile definition UP --- 
-  // Function to fetch user profile using the provided token or fallback to localStorage
-  const fetchUserProfile = useCallback(async (authToken = null) => {
-    // Determine the token to use with priority:
-    // 1. Explicitly passed authToken
-    // 2. Current Supabase session token (from state)
-    // 3. Current custom JWT token (from state)
-    // 4. Fallback to localStorage (less reliable)
-    const tokenToUse =
-        authToken ||
-        session?.access_token ||
-        token ||
-        localStorage.getItem('token');
-
-    if (!tokenToUse) {
-      console.log('[AuthContext-fetchUserProfile] Cannot fetch profile, no token available.');
-      // Clear currentUser if called without a token and none exists
-      setCurrentUser(null);
-      // Ensure loading stops if fetch can't proceed
-      setAuthLoading(false);
-      return;
-    }
-    console.log('[AuthContext-fetchUserProfile] Fetching user profile with token starting with:', tokenToUse.substring(0, 10));
-    // Indicate loading - use authLoading? Or a separate profileLoading state? Let's reuse authLoading.
-    setAuthLoading(true);
-    setError(''); // Clear previous errors
-    try {
-        // Set header specifically for this request
-        const response = await axios.get(`${API_BASE_URL}/api/auth/me`, {
-            headers: {
-                'Authorization': `Bearer ${tokenToUse}`
-            }
-        });
-        console.log('[AuthContext-fetchUserProfile] User profile fetched successfully:', response.data);
-        setCurrentUser(response.data);
-    } catch (err) {
-        console.error('[AuthContext-fetchUserProfile] Failed to fetch user profile:', err.response?.status, err.response?.data || err.message);
-        setError('Failed to load user profile.');
-        setCurrentUser(null); // Clear user data on fetch error
-
-        // If fetch fails due to invalid token (401), maybe clear the source
-        if (err.response && err.response.status === 401) {
-            if (authToken) {
-                // If we used a Supabase token, maybe trigger Supabase sign out? Risky.
-                // Let Supabase client handle session expiry.
-                console.warn('[AuthContext-fetchUserProfile] Unauthorized (401) fetching profile with provided token.');
-            } else {
-                // If we used localStorage token OR state token (custom JWT) that failed, clear custom tokens
-                console.log('[AuthContext-fetchUserProfile] Unauthorized (401), clearing potentially invalid custom/localStorage tokens.');
-                setToken(null);
-                setRefreshToken(null);
-                localStorage.removeItem('token');
-                localStorage.removeItem('refreshToken');
-            }
-        }
-    } finally {
-        // Set loading false regardless of success/failure, profile fetch attempt is complete
-        setAuthLoading(false);
-    }
-  // Add dependencies on `session` and `token` states
-  }, [session, token]); // Make sure session and token are added here
 
   // --- Supabase Auth Listener ---
   useEffect(() => {
     console.log("[AuthContext] Setting up onAuthStateChange listener.");
-    // Initial check is important
     let initialCheckDone = false;
 
     supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
@@ -115,14 +49,12 @@ export const AuthProvider = ({ children }) => {
       setUser(initialSession?.user ?? null);
        if (!initialCheckDone) {
          setInitialCheckLoading(false); // Initial check finished
-         // Don't set authLoading here yet, wait for header effect
          initialCheckDone = true;
        }
     }).catch(error => {
       console.error("[AuthContext] Error fetching initial Supabase session:", error);
        if (!initialCheckDone) {
          setInitialCheckLoading(false); // Initial check finished (with error)
-         // Don't set authLoading here yet
          initialCheckDone = true;
        }
     });
@@ -132,23 +64,17 @@ export const AuthProvider = ({ children }) => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
 
-      // If Supabase signs out, ensure custom tokens are also cleared
       if (_event === 'SIGNED_OUT') {
-          console.log("[AuthContext] Supabase SIGNED_OUT event, clearing related state.");
-          setToken(null); // Clear custom JWT
-          setRefreshToken(null);
-          setCurrentUser(null);
-          localStorage.removeItem('token'); // Clear storage too
-          localStorage.removeItem('refreshToken');
-          delete axios.defaults.headers.common['Authorization']; // Clear header on sign out
-          setAuthLoading(false); // Auth state is now known (logged out)
+        console.log("[AuthContext] Supabase SIGNED_OUT event, clearing related state.");
+        setToken(null);
+        setRefreshToken(null);
+        localStorage.removeItem('token');
+        localStorage.removeItem('refreshToken');
       }
-       // Ensure initialCheckLoading is false after the first event if initial check hasn't finished
        if (!initialCheckDone) {
          setInitialCheckLoading(false);
          initialCheckDone = true;
        }
-       // We still wait for the header effect to set authLoading
     });
 
     return () => {
@@ -158,155 +84,98 @@ export const AuthProvider = ({ children }) => {
   }, []);
   // --- End Supabase Auth Listener ---
 
-  // --- Consolidated Axios Header Management ---
+  // --- NEW: Dedicated Profile Fetch Effect ---
   useEffect(() => {
-    console.log(`[AuthContext-HeaderEffect] Running. Session: ${!!session}, Token: ${!!token}, InitialCheckLoading: ${initialCheckLoading}`);
-    let headerSet = false;
-    let usedSupabaseToken = false;
+    const activeToken = session?.access_token || token;
 
-    // Priority 1: Supabase Session Token
-    if (session?.access_token) {
-      const tokenToSet = session.access_token;
-      console.log(`[AuthContext-HeaderEffect] Using Supabase session token. Starts with: ${tokenToSet?.substring(0, 10)}...`);
+    if (activeToken) {
+      console.log("[AuthContext-ProfileFetchEffect] Auth token detected, fetching profile...");
+      setProfileLoading(true);
+      setError('');
+
+      axios.get(`${API_BASE_URL}/api/auth/me`, {
+        headers: { 'Authorization': `Bearer ${activeToken}` }
+      })
+      .then(response => {
+        console.log('[AuthContext-ProfileFetchEffect] Profile fetched successfully:', response.data);
+        setCurrentUser(response.data);
+      })
+      .catch(err => {
+        console.error('[AuthContext-ProfileFetchEffect] Failed to fetch profile:', err.response?.status, err.response?.data || err.message);
+        setError('Failed to load user profile.');
+        setCurrentUser(null);
+
+        if (err.response && err.response.status === 401) {
+            console.warn('[AuthContext-ProfileFetchEffect] Unauthorized (401) fetching profile.');
+        }
+      })
+      .finally(() => {
+        setProfileLoading(false);
+      });
+
+    } else {
+      console.log("[AuthContext-ProfileFetchEffect] No active auth token, ensuring profile is null.");
+      setCurrentUser(null);
+      setProfileLoading(false);
+    }
+
+  }, [session, token]);
+  // --- End Dedicated Profile Fetch Effect ---
+
+  // --- Simplified Axios Header Management ---
+  useEffect(() => {
+    console.log(`[AuthContext-HeaderEffect] Running. Session: ${!!session}, Token: ${!!token}`);
+    const tokenToSet = session?.access_token || token;
+
+    if (tokenToSet) {
+      console.log(`[AuthContext-HeaderEffect] Setting Axios header. Token starts with: ${tokenToSet.substring(0, 10)}...`);
       axios.defaults.headers.common['Authorization'] = `Bearer ${tokenToSet}`;
-      headerSet = true;
-      usedSupabaseToken = true;
-      console.log("[AuthContext-HeaderEffect] Axios header SET (Supabase).");
-
-      // Fetch profile only ONCE per Supabase session establishment
-      if (!profileFetchAttempted) {
-        console.log("[AuthContext-HeaderEffect] Triggering profile fetch for new/updated Supabase session.");
-        setProfileFetchAttempted(true); // Mark as attempted for Supabase session
-        fetchUserProfile(tokenToSet);
-      } else {
-        console.log("[AuthContext-HeaderEffect] Profile fetch already attempted for this Supabase session.");
-      }
-
-    // Priority 2: Custom JWT Token (if no Supabase session)
-    } else if (token) { 
-      console.log(`[AuthContext-HeaderEffect] No Supabase session, using custom JWT token. Starts with: ${token?.substring(0, 10)}...`);
-      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-      headerSet = true;
-      console.log("[AuthContext-HeaderEffect] Axios header SET (Custom JWT).");
-      // Reset Supabase fetch attempt flag if we are now using custom token
-      if (profileFetchAttempted) {
-          setProfileFetchAttempted(false);
-      }
-
-    // Clear Header: If neither Supabase session nor custom JWT exists
-    } else { 
-      console.log("[AuthContext-HeaderEffect] No active session or custom token detected.");
+    } else {
+      console.log("[AuthContext-HeaderEffect] No active token, clearing Axios header.");
       if (axios.defaults.headers.common['Authorization']) {
-        console.log("[AuthContext-HeaderEffect] Attempting to clear Axios header...");
-        delete axios.defaults.headers.common['Authorization'];
-        console.log("[AuthContext-HeaderEffect] Axios header CLEARED.");
-      } else {
-        console.log("[AuthContext-HeaderEffect] Axios header already clear.");
-      }
-      headerSet = true; // Header state is known (cleared)
-
-      // Reset Supabase fetch attempt flag when no session active
-      if (profileFetchAttempted) {
-        console.log("[AuthContext-HeaderEffect] Resetting profile fetch attempt flag.");
-        setProfileFetchAttempted(false);
+          delete axios.defaults.headers.common['Authorization'];
+          console.log("[AuthContext-HeaderEffect] Axios header CLEARED.");
       }
     }
+  }, [session, token]);
+  // --- End Simplified Axios Header Management ---
 
-    // Determine overall authLoading state
-    // It should be false if initial check is done AND (header is set OR header is cleared because no tokens exist)
-    if (!initialCheckLoading && headerSet && authLoading) {
-        console.log("[AuthContext-HeaderEffect] Initial check done and header state known, setting authLoading false.");
-        setAuthLoading(false);
-    } else if (initialCheckLoading) {
-        console.log("[AuthContext-HeaderEffect] Still waiting for initial check, authLoading remains true.");
-    } else if (!headerSet) {
-        // This case shouldn't happen with the logic above, but safety check
-        console.warn("[AuthContext-HeaderEffect] Header state unknown after checks, authLoading might be incorrect.");
-    }
-
-    console.log(`[AuthContext-HeaderEffect] Finished. Header set: ${headerSet}, Used Supabase: ${usedSupabaseToken}`);
-
-  // Dependencies: React to changes in Supabase session, custom token, initial check, and profile fetch attempt status
-  }, [session, token, initialCheckLoading, fetchUserProfile, profileFetchAttempted, authLoading]); 
-  // --- End Consolidated Axios Header Management ---
-
-  // --- Custom JWT Check on Mount --- 
-  // This effect should primarily ensure localStorage is updated if tokens change
-  // and potentially trigger profile fetch if needed, but NOT manage the header directly.
+  // --- Custom JWT LocalStorage Sync ---
   useEffect(() => {
+     console.log('[AuthContext-TokenStorageEffect] Syncing tokens. Token:', !!token, 'RefreshToken:', !!refreshToken);
     if (token && refreshToken) {
-        console.log('[AuthContext-TokenStorageEffect] Syncing custom tokens to localStorage.');
         localStorage.setItem('token', token);
         localStorage.setItem('refreshToken', refreshToken);
     } else {
-        console.log('[AuthContext-TokenStorageEffect] No custom tokens, clearing localStorage.');
-        localStorage.removeItem('token');
-        localStorage.removeItem('refreshToken');
+        if (!token) localStorage.removeItem('token');
+        if (!refreshToken) localStorage.removeItem('refreshToken');
     }
   }, [token, refreshToken]);
+  // --- End Custom JWT LocalStorage Sync ---
 
-  // --- Initial Check for Custom Auth --- (If no Supabase session found)
-  useEffect(() => {
-    const checkInitialCustomAuth = async () => {
-        // Only run if Supabase listener finished and found no session, but custom tokens exist in localStorage
-        // And also check if 'token' state is not already set (to avoid double fetch)
-        if (!initialCheckLoading && !session && !token && localStorage.getItem('token') && localStorage.getItem('refreshToken')) {
-            console.log("[AuthContext-InitialCustomCheck] No initial Supabase session or state token, checking localStorage token validity...");
-            // Set state from localStorage first, which will trigger header effect
-            const storedToken = localStorage.getItem('token');
-            const storedRefreshToken = localStorage.getItem('refreshToken');
-            setToken(storedToken);
-            setRefreshToken(storedRefreshToken);
-            // The header effect will run due to token state change and call fetchUserProfile if needed
-            // await fetchUserProfile(storedToken); // Let the main effect handle this based on token state
-        } else {
-            console.log(`[AuthContext-InitialCustomCheck] Skipping check. InitialLoading: ${initialCheckLoading}, Session: ${!!session}, Token State: ${!!token}`);
-        }
-    };
-    checkInitialCustomAuth();
-  // Run when initial check is done, session is known, and token state changes
-  }, [initialCheckLoading, session, token]); 
-
-  // --- Combined Logout Function ---
+  // --- Logout Function ---
   const logout = useCallback(async () => {
     console.log('[AuthContext] Logging out...');
-    setAuthLoading(true); // Set loading during logout process
-
-    // Clear custom JWT state and storage FIRST
-    console.log('[AuthContext] Clearing custom JWT tokens.');
+    setError('');
     setToken(null);
     setRefreshToken(null);
-    setCurrentUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
-    // Also clear the header immediately for custom JWT logout
-    delete axios.defaults.headers.common['Authorization'];
 
-    // Then Sign out from Supabase (will trigger onAuthStateChange)
-    console.log('[AuthContext] Signing out from Supabase...');
     const { error: supabaseError } = await supabase.auth.signOut();
     if (supabaseError) {
       console.error("[AuthContext] Error during Supabase sign out:", supabaseError);
-      // If Supabase sign out fails, at least custom state is cleared.
-      // Set loading false since the process finished (even with error)
-      setAuthLoading(false);
     } else {
-       console.log('[AuthContext] Supabase sign out successful (onAuthStateChange will confirm).');
-       // Rely on onAuthStateChange SIGNED_OUT event to set authLoading false finally.
+       console.log('[AuthContext] Supabase sign out called successfully (onAuthStateChange will confirm).');
     }
-
-    // Note: Axios header clearing is now handled by onAuthStateChange and the header useEffect
-    // AND explicitly cleared above for the custom token case.
-    // delete axios.defaults.headers.common['Authorization'];
-
   }, []);
 
-  // --- AUTH ACTIONS (Register, Login, Logout) --- 
+  // --- AUTH ACTIONS (Register, Login) ---
 
   const register = async (firstName, email, password) => {
     console.log(`[AuthContext] Attempting registration for: ${firstName}, ${email}`);
     setError('');
-    setAuthLoading(true);
+    setProfileLoading(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/auth/register`, {
         firstName,
@@ -316,78 +185,74 @@ export const AuthProvider = ({ children }) => {
       console.log('[AuthContext] Backend registration response:', response.data);
       
       if (response.data.confirmation_required) {
-         // Handle confirmation required case (e.g., show message)
-         setAuthLoading(false);
+         setProfileLoading(false);
          return { ...response.data, requires_confirmation: true };
       }
 
-      // Assuming backend returns tokens and user data on successful non-confirmed registration
-      if (response.data.access_token && response.data.refresh_token && response.data.user) {
+      if (response.data.access_token && response.data.refresh_token) {
         setToken(response.data.access_token);
         setRefreshToken(response.data.refresh_token);
-        setCurrentUser(response.data.user); // Set user data from backend
-      } else {
+        if(response.data.user) setCurrentUser(response.data.user);
+      } else if (!response.data.confirmation_required) {
          throw new Error("Registration response from backend was incomplete.");
       }
-      setAuthLoading(false);
       return response.data;
     } catch (err) {
       console.error('[AuthContext] Backend registration error:', err.response?.data || err.message);
       const message = err.response?.data?.error || 'Registration failed';
       setError(message);
-      setAuthLoading(false);
+      setProfileLoading(false);
       throw new Error(message);
     }
   };
 
   const login = async (usernameOrEmail, password) => {
     console.log(`[AuthContext] Attempting login for: ${usernameOrEmail}`);
-    setAuthLoading(true);
     setError('');
+    setProfileLoading(true);
     try {
-      // Use username field, backend handles if it's email or username
       const response = await axios.post(`${API_BASE_URL}/api/auth/login`, { username: usernameOrEmail, password });
       console.log('[AuthContext] Backend login response:', response.data);
 
-      if (!response.data.access_token || !response.data.refresh_token || !response.data.user) {
+      if (!response.data.access_token || !response.data.refresh_token) {
         throw new Error("Login response from backend was incomplete.");
       }
 
       setToken(response.data.access_token);
       setRefreshToken(response.data.refresh_token);
-      setCurrentUser(response.data.user);
-      setAuthLoading(false);
+      if(response.data.user) setCurrentUser(response.data.user);
+
       return response.data;
     } catch (err) {
       console.error('[AuthContext] Backend login error:', err.response?.data || err.message);
       const message = err.response?.data?.error || 'Login failed';
       setError(message);
-      setAuthLoading(false);
+      setProfileLoading(false);
       throw new Error(message);
     }
   };
 
   // --- Context Value ---
+  const combinedLoading = initialCheckLoading || profileLoading;
+
   const value = {
-    // Supabase specific
-    session, 
-    supabaseUser: user, // Rename to avoid clash with currentUser from custom JWT
-    // Custom JWT specific
+    session,
+    supabaseUser: user,
     token,
     refreshToken,
-    currentUser, // User data from custom /me endpoint
-    // Combined state
-    loading: initialCheckLoading || authLoading, // Overall loading is true if either check is pending
-    authLoading, // Specific flag for API call readiness
-    error,
-    // Revert to check based on user object OR token state
-    isAuthenticated: !!user || !!token, 
-    // Functions
-    logout, 
-    register, // Uses backend API
-    login,    // Uses backend API
-    fetchUserProfile, // Function to explicitly get profile via custom JWT
-    profileFetchAttempted
+    currentUser,
+
+    loading: combinedLoading,
+    initialCheckLoading,
+    profileLoading,
+
+    error: authError,
+
+    isAuthenticated: !!user || !!token,
+
+    logout,
+    register,
+    login,
   };
 
   return (
