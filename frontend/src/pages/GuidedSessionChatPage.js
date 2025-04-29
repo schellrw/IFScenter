@@ -19,8 +19,8 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SupportAgentIcon from '@mui/icons-material/SupportAgent';
-import axios from 'axios';
 import { format, formatDistanceToNow, parseISO, isValid } from 'date-fns';
+import { getSessionDetails, addSessionMessage } from '../utils/api';
 
 // Clean up the API_BASE_URL to handle any potential quotation marks and ensure proper URL formation
 let API_BASE_URL;
@@ -40,7 +40,7 @@ const GuidedSessionChatPage = () => {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { user } = useIFS();
-  const { refreshCurrentUser } = useAuth();
+  const { loading: authLoading, isAuthenticated } = useAuth();
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [session, setSession] = useState(null);
@@ -52,6 +52,9 @@ const GuidedSessionChatPage = () => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info');
+  // State for usage limits
+  const [dailyCount, setDailyCount] = useState(null);
+  const [dailyLimit, setDailyLimit] = useState(null);
 
   // Scroll to bottom when messages change
   useEffect(() => {
@@ -83,9 +86,7 @@ const GuidedSessionChatPage = () => {
 
     try {
       // Fetch session details and messages from the new endpoint
-      const response = await axios.get(
-        `${API_BASE_URL}/api/guided-sessions/${id}`
-      );
+      const response = await getSessionDetails(id);
 
       if (response.data) {
         setSession(response.data.session || null);
@@ -130,15 +131,13 @@ const GuidedSessionChatPage = () => {
     setError(''); // Clear previous errors
 
     try {
-      // Send the message to the new API endpoint
-      const response = await axios.post(
-        `${API_BASE_URL}/api/guided-sessions/${session.id}/messages`,
-        { content: userMessageContent } // Only send content
-      );
+      // Send the message using the imported API function
+      const response = await addSessionMessage(session.id, userMessageContent);
 
-      // The backend now returns {"userMessage": ..., "guideMessage": ...}
+      // The backend now returns {"userMessage": ..., "guideMessage": ..., "usageInfo": ...}
       const savedUserMessage = response.data.userMessage;
       const guideResponse = response.data.guideMessage;
+      const usageInfo = response.data.usageInfo; // Get usage info
 
       // Replace the temp message with the actual one from the server
       // Add the guide's response
@@ -157,14 +156,16 @@ const GuidedSessionChatPage = () => {
         return newMessages;
       });
 
-      // --- Refresh user data after successful send ---
-      try {
-        await refreshCurrentUser();
-      } catch (refreshError) {
-        // Log error if refresh fails, but don't necessarily block UI
-        console.error("Error refreshing user data after message send:", refreshError);
+      // --- Update Usage Info State --- 
+      if (usageInfo) {
+        console.log('Received usage info:', usageInfo);
+        setDailyCount(usageInfo.dailyMessageCount);
+        // Handle potential infinity limit from backend
+        setDailyLimit(usageInfo.dailyMessageLimit === null || usageInfo.dailyMessageLimit === Infinity ? Infinity : usageInfo.dailyMessageLimit); 
+      } else {
+        console.warn('No usageInfo received from backend.');
       }
-      // --- End refresh ---
+      // --- End Update Usage Info --- 
 
       // Show backend non-critical error as warning snackbar
       if (response.data.error) {
@@ -219,6 +220,9 @@ const GuidedSessionChatPage = () => {
       return '';
     }
   };
+
+  // Determine if user is over limit (handle null/Infinity)
+  const isOverLimit = dailyLimit !== null && dailyLimit !== Infinity && dailyCount !== null && dailyCount >= dailyLimit;
 
   // Display loading indicator while fetching initial data
   if (isLoading) {
@@ -444,14 +448,14 @@ const GuidedSessionChatPage = () => {
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyPress={handleKeyPress}
-                disabled={isSending} // Disable input while sending
+                disabled={isSending} // Only disable if sending
                 variant="outlined"
                 sx={{ mr: 1 }}
               />
               <IconButton
                 color="primary"
                 onClick={handleSendMessage}
-                disabled={!message.trim() || isSending}
+                disabled={!message.trim() || isSending} // Only disable if no message OR sending
                 sx={{ alignSelf: 'flex-end', p: '10px' }}
               >
                 <SendIcon />

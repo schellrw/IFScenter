@@ -36,27 +36,20 @@ def get_system():
             logger.info(f"Creating new system for user {user_id}")
             system = IFSSystem(
                 user_id=user_id,
-                name="My IFS System",  # This will be ignored since column doesn't exist in DB
-                description="Default IFS system"  # This will be ignored since column doesn't exist in DB
+                # Remove name/description as they don't exist on the model
+                # name="My IFS System",  
+                # description="Default IFS system"
             )
             
-            # Add and commit the system first to get an ID
+            # Add and commit the system ONLY. Do NOT create default parts here.
             db.session.add(system)
             db.session.commit()
             
-            # Now create the default "Self" part with the valid system ID
-            self_part = Part(
-                name="Self",
-                role="Core Self",
-                description="The centered, compassionate Self that is the goal of IFS therapy.",
-                feelings=["Calm", "curious", "compassionate", "connected", "clear", "confident", "creative", "courageous"],
-                beliefs=["All parts are welcome. I can hold space for all experiences."],
-                system_id=str(system.id)
-            )
-            
-            # Add and commit the Self part separately
-            db.session.add(self_part)
-            db.session.commit()
+            # --- REMOVED DEFAULT SELF PART CREATION --- 
+            # self_part = Part(...)
+            # db.session.add(self_part)
+            # db.session.commit()
+            # --- END REMOVAL --- 
             
             logger.info(f"Created new system with ID {system.id} for user {user_id}")
         else:

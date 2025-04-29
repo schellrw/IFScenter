@@ -7,13 +7,15 @@ import {
     Container,
     Typography,
     Paper,
-    Divider,
     Button,
     Box,
     CircularProgress,
     Alert,
-    Chip
+    Chip,
+    TextField,
+    IconButton
 } from '@mui/material';
+import EditIcon from '@mui/icons-material/Edit';
 
 // Get Base URL 
 let API_BASE_URL = process.env.REACT_APP_API_URL;
@@ -24,23 +26,63 @@ API_BASE_URL = API_BASE_URL.replace(/["|']/g, '');
 API_BASE_URL = API_BASE_URL.endsWith('/') ? API_BASE_URL.slice(0, -1) : API_BASE_URL;
 
 function AccountSettings() {
-    // Destructure with the CORRECT property name: currentUser
-    // Also rename it locally to 'user' for consistency within this component if preferred
-    const { currentUser: user, fetchUserProfile } = useAuth(); 
+    // Destructure relevant states and objects from AuthContext
+    const { 
+        supabaseUser, 
+        currentUser, 
+        loading, 
+        isAuthenticated, 
+        fetchUserProfile
+    } = useAuth();
+    
+    // State for Editing Name
+    const [editMode, setEditMode] = useState(false);
+    const [editableName, setEditableName] = useState('');
+    const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState('');
+
+    // Initialize editableName when currentUser loads or changes
+    useEffect(() => {
+        if (currentUser) {
+            setEditableName(currentUser.first_name || '');
+        }
+    }, [currentUser]);
     
     const [isManagingSubscription, setIsManagingSubscription] = useState(false);
     const [error, setError] = useState(null);
 
-    useEffect(() => {
-        // Always fetch the profile when the component mounts to ensure freshness,
-        // especially after potential updates like subscription changes.
-        if (fetchUserProfile) { 
-            console.log("AccountSettings mounted, fetching user profile...");
-            fetchUserProfile(); 
+    // Function to handle saving the name
+    const handleSaveName = async () => {
+        setIsSaving(true);
+        setSaveError('');
+        try {
+            // Update endpoint URL to include /auth
+            const response = await axios.put(`${API_BASE_URL}/api/auth/profile`, 
+                { firstName: editableName }, 
+                // Ensure token is sent if using custom JWT or relying on default header
+            );
+            
+            if (response.status === 200) {
+                // Successfully updated
+                await fetchUserProfile(); // Refresh currentUser in AuthContext
+                setEditMode(false);
+            } else {
+                throw new Error(response.data?.message || 'Failed to update profile');
+            }
+        } catch (err) {
+            console.error("Error updating profile:", err);
+            setSaveError(err.response?.data?.message || err.message || 'An error occurred while saving.');
+        } finally {
+            setIsSaving(false);
         }
-    // Depend only on fetchUserProfile to avoid re-fetching if the user object changes
-    // due to the fetch itself, preventing potential loops.
-    }, [fetchUserProfile]);
+    };
+
+    // Function to cancel editing
+    const handleCancelEdit = () => {
+        setEditableName(currentUser?.first_name || ''); // Reset to original name
+        setEditMode(false);
+        setSaveError('');
+    };
 
     const handleManageSubscription = async () => {
         setIsManagingSubscription(true);
@@ -67,8 +109,9 @@ function AccountSettings() {
         }
     };
 
-    // Loading check
-    if (!user) {
+    // Updated Loading check: Use the 'loading' state from AuthContext
+    // This covers initial check, auth setup, AND profile fetch
+    if (loading) {
         return (
             <Container maxWidth="sm" sx={{ mt: 4, textAlign: 'center' }}>
                 <CircularProgress />
@@ -76,13 +119,27 @@ function AccountSettings() {
             </Container>
         );
     }
+
+    // Additional check: Use isAuthenticated which is based on supabaseUser
+    if (!isAuthenticated) {
+         return (
+             <Container maxWidth="sm" sx={{ mt: 4 }}>
+                 <Alert severity="warning">Please log in to view your account settings.</Alert>
+                 {/* Optional: Add a link to the login page */}
+                 <Box sx={{ mt: 2, textAlign: 'center' }}>
+                     <Button component={Link} to="/login" variant="contained">Login</Button>
+                 </Box>
+             </Container>
+         );
+    }
     
-    // Determine Tier and Message
+    // Determine Tier and Message using currentUser (fetched from /api/auth/me)
     let tierDisplay = 'Free';
     let tierMessage = null;
     let tierChipColor = "default";
 
-    if (user.subscription_tier === 'pro') {
+    // Use optional chaining on currentUser for subscription info
+    if (currentUser?.subscription_tier === 'pro') {
         tierDisplay = 'Pro';
         tierChipColor = "info";
         tierMessage = (
@@ -95,7 +152,7 @@ function AccountSettings() {
                 </Link>
             </>
         );
-    } else if (user.subscription_tier === 'unlimited') {
+    } else if (currentUser?.subscription_tier === 'unlimited') {
         tierDisplay = 'Unlimited';
         tierChipColor = "success";
         tierMessage = (
@@ -124,10 +181,54 @@ function AccountSettings() {
 
             <Paper elevation={3} sx={{ p: 3, mb: 3 }}>
                 <Typography variant="h6" gutterBottom>User Information</Typography>
-                <Typography><strong>Username:</strong> {user.username || 'N/A'}</Typography>
-                <Typography><strong>Email:</strong> {user.email || 'N/A'}</Typography>
-                <Typography><strong>Full Name:</strong> {user.full_name || 'Not set'}</Typography> 
-                {/* TODO: Add Button/Form to edit profile details */}
+                {/* Hide Username */}
+                {/* <Typography><strong>Username:</strong> {currentUser?.username || 'N/A'}</Typography> */}
+                {/* Display email from currentUser */}
+                <Typography sx={{ mb: 1 }}>
+                    <strong>Email:</strong> {currentUser?.email || 'N/A'}
+                </Typography>
+                
+                {/* Name Display/Edit Section */} 
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    {!editMode ? (
+                        <>
+                            <Typography>
+                                <strong>Name:</strong> {currentUser?.first_name || 'Not set'}
+                            </Typography>
+                            <IconButton size="small" onClick={() => setEditMode(true)} aria-label="Edit name">
+                                <EditIcon fontSize="inherit" />
+                            </IconButton>
+                        </>
+                    ) : (
+                        <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                            <TextField 
+                                label="Name"
+                                variant="outlined"
+                                size="small"
+                                fullWidth
+                                value={editableName}
+                                onChange={(e) => setEditableName(e.target.value)}
+                                error={!!saveError}
+                                helperText={saveError}
+                                sx={{ mb: 1 }}
+                            />
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                                <Button 
+                                    variant="contained"
+                                    size="small"
+                                    onClick={handleSaveName}
+                                    disabled={isSaving}
+                                >
+                                    {isSaving ? <CircularProgress size={20} color="inherit"/> : 'Save'}
+                                </Button>
+                                <Button variant="outlined" size="small" onClick={handleCancelEdit} disabled={isSaving}>
+                                    Cancel
+                                </Button>
+                            </Box>
+                        </Box>
+                    )}
+                </Box>
+                
             </Paper>
 
             <Paper elevation={3} sx={{ p: 3 }}>
@@ -141,8 +242,8 @@ function AccountSettings() {
 
                 {error && <Alert severity="error" sx={{ my: 2 }}>{error}</Alert>} 
 
-                {/* Only show Manage Subscription if NOT Free tier */}
-                {user.subscription_tier && user.subscription_tier !== 'free' && (
+                {/* Only show Manage Subscription if NOT Free tier - use currentUser */}
+                {currentUser?.subscription_tier && currentUser?.subscription_tier !== 'free' && (
                      <Button 
                         variant="contained"
                         onClick={handleManageSubscription} 

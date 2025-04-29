@@ -1,13 +1,16 @@
 import React, { useState, useEffect, useRef, createRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { useIFS } from '../context/IFSContext';
+import { useAuth } from '../context/AuthContext';
 import { 
   Container, Typography, Box, Paper, TextField, Button,
-  Stack, Alert, Divider, List, ListItem, ListItemText,
+  Stack, Alert, Divider, List,
   Accordion, AccordionSummary, AccordionDetails, Chip,
-  Snackbar
+  Snackbar, IconButton,
+  Dialog, DialogActions, DialogContent, DialogTitle 
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { EmotionPicker, PartSelector, JournalPrompt } from '../components';
 import { format } from 'date-fns';
 import { REFLECTIVE_PROMPTS, COMMON_EMOTIONS } from '../constants';
@@ -23,7 +26,8 @@ const getNewUniquePrompt = (currentPrompt) => {
 };
 
 const JournalPage = () => {
-  const { system, loading, error, addJournal, getJournals, journals } = useIFS();
+  const { system, loading, error, addJournal, getJournals, journals, deleteJournal } = useIFS();
+  const { token } = useAuth();
   const location = useLocation();
   const [content, setContent] = useState('');
   const [title, setTitle] = useState('');
@@ -35,6 +39,10 @@ const JournalPage = () => {
   const [snackbarOpen, setSnackbarOpen] = useState(false);
   const [snackbarMessage, setSnackbarMessage] = useState('');
   const [snackbarSeverity, setSnackbarSeverity] = useState('info'); // 'success', 'error', 'warning', 'info'
+  
+  // State for custom delete dialog
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [journalToDelete, setJournalToDelete] = useState(null); // Store { id, title }
   
   // Create refs for journal entries for scrolling functionality
   const journalRefs = useRef({});
@@ -104,7 +112,7 @@ const JournalPage = () => {
   // Separate useEffect for journals loading to prevent repeated calls
   useEffect(() => {
     // Load journals only if authenticated and system ID is available
-    if (system && system.id) {
+    if (system?.id) {
       console.log('Fetching journals for system:', system.id);
       getJournals().catch(err => {
         console.error('Error fetching journals:', err);
@@ -116,7 +124,7 @@ const JournalPage = () => {
     } else {
       console.log('No system available yet, skipping journal fetch');
     }
-  }, [system?.id]); // Only depend on system.id, not the entire system object or getJournals
+  }, [system?.id]); // Reverted dependency to system?.id to prevent infinite loop
 
   // Snackbar close handler
   const handleSnackbarClose = (event, reason) => {
@@ -126,6 +134,33 @@ const JournalPage = () => {
     setSnackbarOpen(false);
   };
 
+  // Opens the confirmation dialog
+  const handleDelete = (journal) => {
+    setJournalToDelete(journal); // Store the whole journal object or just {id, title}
+    setDeleteDialogOpen(true);
+  };
+
+  // Called when user confirms deletion in the dialog
+  const confirmDelete = async () => {
+    if (!journalToDelete) return;
+    
+    try {
+      await deleteJournal(journalToDelete.id); // Call context function
+      setSnackbarMessage('Journal entry deleted successfully!');
+      setSnackbarSeverity('success');
+      setSnackbarOpen(true);
+      // No need to call getJournals() here, deleteJournal in context already does
+    } catch (err) {
+      console.error("Error deleting journal:", err);
+      setSnackbarMessage(err.response?.data?.error || 'Failed to delete journal entry.');
+      setSnackbarSeverity('error');
+      setSnackbarOpen(true);
+    } finally {
+      setJournalToDelete(null);
+      setDeleteDialogOpen(false); // Close the dialog
+    }
+  };
+
   const handleSave = async () => {
     try {
       // Show saving message (optional, could skip)
@@ -133,7 +168,7 @@ const JournalPage = () => {
       // setSnackbarSeverity('info');
       // setSnackbarOpen(true);
       
-      const journalTitle = title.trim() || `Journal Entry - ${format(new Date(), 'PPP p')}`;
+      const journalTitle = title.trim() || `Journal - ${new Date().toLocaleDateString()}`;
       
       // Format part_id from selectedParts (take first one if multiple selected)
       const partId = selectedParts.length > 0 ? selectedParts[0] : null;
@@ -185,11 +220,24 @@ const JournalPage = () => {
     }
   };
 
-  // Format date for display
+  // Format date for display using user's locale
   const formatDate = (dateString) => {
     if (!dateString) return '';
-    const date = new Date(dateString);
-    return format(date, 'PPP p'); // e.g., "April 29, 2023, 3:30 PM"
+    try {
+        const date = new Date(dateString);
+        // Check if the date is valid before formatting
+        if (isNaN(date.getTime())) {
+             console.warn("Invalid date string received:", dateString);
+             return "Invalid Date"; // Or return the original string, or empty
+        }
+        // Use locale-specific date and time formatting
+        const optionsDate = { year: 'numeric', month: 'long', day: 'numeric' };
+        const optionsTime = { hour: 'numeric', minute: 'numeric', hour12: true };
+        return `${date.toLocaleDateString(undefined, optionsDate)}, ${date.toLocaleTimeString(undefined, optionsTime)}`;
+    } catch (e) {
+        console.error("Error formatting date:", e);
+        return dateString; // Fallback to original string on error
+    }
   };
 
   // Extract emotions from metadata JSON
@@ -252,119 +300,159 @@ const JournalPage = () => {
               onChange={setSelectedEmotions}
             />
           </Paper>
-
+          
           {/* Part Selector */}
           <Paper sx={{ p: 2 }}>
-            <Typography variant="subtitle1" gutterBottom>
-              Parts Present:
-            </Typography>
-            <PartSelector
-              parts={parts}
-              selectedParts={selectedParts}
-              onChange={setSelectedParts}
-            />
+             <PartSelector 
+                parts={parts} 
+                selectedParts={selectedParts} 
+                onChange={setSelectedParts}
+                label="Which Parts were present during this reflection?" 
+             />
           </Paper>
-
-          {/* Journal Content */}
+          
+          {/* Content Field */}
           <Paper sx={{ p: 2 }}>
             <TextField
               fullWidth
+              label="Journal Entry"
               multiline
-              rows={6}
-              label="What's coming up for you?"
+              rows={10}
               value={content}
               onChange={(e) => setContent(e.target.value)}
               variant="outlined"
             />
           </Paper>
-
-          {/* Save Button - removed the inline Alert */}
-          <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
-            <Button
-              variant="contained"
-              color="primary"
-              onClick={handleSave}
-              disabled={!content.trim()}
-            >
+          
+          {/* Save Button */}
+          <Box sx={{ textAlign: 'right' }}>
+            <Button variant="contained" color="primary" onClick={handleSave}>
               Save Entry
             </Button>
           </Box>
           
-          {/* Journal History Section */}
+          {/* Divider */}
           <Divider sx={{ my: 3 }} />
           
+          {/* Past Entries Section */}
           <Typography variant="h5" component="h2" gutterBottom>
-            Journal History
+            Past Entries
           </Typography>
           
           {journals && journals.length > 0 ? (
             <List>
-              {journals.map((journal) => (
-                <Paper 
-                  sx={{ mb: 2 }} 
-                  key={journal.id} 
-                  ref={journalRefs.current[journal.id]}
-                  // Highlight the entry if it matches the scrollToEntry parameter
-                  style={location.state?.scrollToEntry === journal.id ? { 
-                    boxShadow: '0 0 8px 2px rgba(25, 118, 210, 0.5)',
-                    border: '1px solid #1976d2'
-                  } : {}}
-                >
-                  <Accordion defaultExpanded={location.state?.scrollToEntry === journal.id}>
-                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
-                        <Typography variant="subtitle1" fontWeight="bold">
-                          {journal.title}
-                        </Typography>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
-                          <Typography variant="caption" color="text.secondary">
-                            {formatDate(journal.date)}
+              {journals.sort((a, b) => new Date(b.created_at) - new Date(a.created_at)).map((journal) => (
+                <Box key={journal.id} sx={{ display: 'flex', alignItems: 'center', mb: 1 }}> 
+                  <Accordion ref={journalRefs.current[journal.id]} sx={{ flexGrow: 1 }}>
+                     <AccordionSummary
+                        expandIcon={<ExpandMoreIcon />}
+                        aria-controls={`panel-${journal.id}-content`}
+                        id={`panel-${journal.id}-header`}
+                        sx={{ 
+                          display: 'flex', 
+                          justifyContent: 'space-between', 
+                          alignItems: 'center', 
+                          width: '100%',
+                          flexWrap: 'wrap'
+                        }}
+                      >
+                       <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1, flexWrap: 'wrap', mr: 1 }}> 
+                          <Typography sx={{ fontWeight: 'bold', mr: 2, flexShrink: 0 }}>{journal.title || 'Untitled Entry'}</Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ mr: 2, flexShrink: 0 }}>
+                             {formatDate(journal.created_at)} 
                           </Typography>
-                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                            {getEmotionsFromMetadata(journal).map((emotion) => (
-                              <Chip 
-                                key={emotion} 
-                                label={COMMON_EMOTIONS.find(e => e.id === emotion)?.label || emotion}
-                                size="small"
-                                sx={{ 
-                                  bgcolor: COMMON_EMOTIONS.find(e => e.id === emotion)?.color || 'gray',
-                                  color: 'white',
-                                  fontSize: '0.7rem'
-                                }}
-                              />
-                            ))}
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: { xs: 1, sm: 0 } }}> 
+                             {getEmotionsFromMetadata(journal).map((emotionId, index) => {
+                                // Find emotion data by ID now
+                                const emotionData = COMMON_EMOTIONS.find(e => e.id === emotionId);
+                                return (
+                                  <Chip 
+                                     key={index} 
+                                     label={emotionData ? emotionData.label : emotionId} // Display label from found data, or the ID as fallback
+                                     size="small" 
+                                     sx={{ 
+                                       bgcolor: emotionData ? emotionData.color : 'grey', // Use color from constant based on ID match
+                                       color: 'white', // Assuming white text works for all colors
+                                       mr: 0.5, 
+                                       mb: 0.5 
+                                     }}
+                                  />
+                                );
+                             })}
                           </Box>
-                        </Box>
-                      </Box>
-                    </AccordionSummary>
+                       </Box>
+                      </AccordionSummary>
                     <AccordionDetails>
-                      <Typography variant="body1" whiteSpace="pre-wrap">
+                      <Typography paragraph>
                         {journal.content}
                       </Typography>
+                      {getEmotionsFromMetadata(journal).length > 0 && (
+                          <Box sx={{ mt: 1 }}>
+                             <Typography variant="caption" display="block" gutterBottom>Emotions present:</Typography>
+                             {getEmotionsFromMetadata(journal).map((emotion, index) => (
+                                <Chip key={index} label={emotion} size="small" sx={{ mr: 0.5, mb: 0.5 }} />
+                             ))}
+                          </Box>
+                       )}
                     </AccordionDetails>
                   </Accordion>
-                </Paper>
+                  {/* Delete Button (now triggers dialog) */}
+                  <IconButton 
+                     aria-label="delete entry" 
+                     onClick={() => handleDelete(journal)} // Pass the journal object
+                     size="small"
+                     sx={{ ml: 1, flexShrink: 0 }} 
+                   >
+                     <DeleteIcon fontSize="inherit" />
+                   </IconButton>
+                </Box>
               ))}
             </List>
           ) : (
-            <Typography variant="body1" color="text.secondary" textAlign="center">
-              No journal entries yet. Start journaling to see your history here.
-            </Typography>
+            <Typography>No journal entries yet.</Typography>
           )}
         </Stack>
+        
+        {/* Snackbar for notifications */}
+        <Snackbar 
+          open={snackbarOpen} 
+          autoHideDuration={6000} 
+          onClose={handleSnackbarClose}
+          anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        >
+          <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
+            {snackbarMessage}
+          </Alert>
+        </Snackbar>
+
+        {/* Custom Delete Confirmation Dialog */}
+        <Dialog open={deleteDialogOpen} onClose={() => setDeleteDialogOpen(false)}>
+          <DialogTitle>Delete Journal Entry</DialogTitle>
+          <DialogContent>
+            Are you sure you want to delete 
+            {journalToDelete?.title ? `"${journalToDelete.title}"` : 'this journal entry'}? 
+            This action cannot be undone.
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setDeleteDialogOpen(false)} sx={{ color: 'primary.main' }}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={confirmDelete} 
+              color="error" 
+              variant="contained"
+              sx={{ 
+                backgroundColor: 'error.main', 
+                color: 'white', 
+                '&:hover': { backgroundColor: 'error.dark' } 
+              }}
+            >
+              Delete
+            </Button>
+          </DialogActions>
+        </Dialog>
+        
       </Box>
-      
-      {/* Snackbar Component for feedback */}
-      <Snackbar
-        open={snackbarOpen}
-        autoHideDuration={6000} // Hide after 6 seconds
-        onClose={handleSnackbarClose}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert onClose={handleSnackbarClose} severity={snackbarSeverity} sx={{ width: '100%' }}>
-          {snackbarMessage}
-        </Alert>
-      </Snackbar>
     </Container>
   );
 };

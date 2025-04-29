@@ -13,7 +13,7 @@ import {
 
 const Register = () => {
   const [formData, setFormData] = useState({
-    username: '',
+    firstName: '',
     email: '',
     password: '',
     confirmPassword: ''
@@ -31,7 +31,7 @@ const Register = () => {
     }));
     
     // Clear error when user types
-    if (formErrors[name]) {
+    if (name !== 'firstName' && formErrors[name]) {
       setFormErrors(prev => ({
         ...prev,
         [name]: ''
@@ -41,10 +41,6 @@ const Register = () => {
 
   const validateForm = () => {
     const errors = {};
-    
-    if (!formData.username.trim()) {
-      errors.username = 'Username is required';
-    }
     
     if (!formData.email.trim()) {
       errors.email = 'Email is required';
@@ -72,7 +68,7 @@ const Register = () => {
     if (!validateForm()) return;
     
     try {
-      const result = await register(formData.username, formData.email, formData.password);
+      const result = await register(formData.firstName, formData.email, formData.password);
       
       if (result && result.requires_confirmation) {
         // Handle email confirmation required case
@@ -141,14 +137,11 @@ const Register = () => {
           <form onSubmit={handleSubmit}>
             <TextField
               fullWidth
-              label="Username"
-              name="username"
-              value={formData.username}
+              label="First Name (Optional)"
+              name="firstName"
+              value={formData.firstName}
               onChange={handleChange}
               margin="normal"
-              error={!!formErrors.username}
-              helperText={formErrors.username}
-              required
             />
             
             <TextField

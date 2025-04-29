@@ -256,20 +256,21 @@ def delete_journal(journal_id):
             logger.error(f"System not found for user {user_id}")
             return jsonify({"error": "System not found"}), 404
         
+        # Find the journal entry ensuring it belongs to the user's system
         journal = Journal.query.filter_by(id=journal_id, system_id=str(system.id)).first()
         
         if not journal:
-            logger.warning(f"Journal {journal_id} not found")
-            return jsonify({"error": "Journal not found"}), 404
+            logger.warning(f"Journal {journal_id} not found or unauthorized for user {user_id}")
+            return jsonify({"error": "Journal not found or unauthorized"}), 404
         
-        journal_title = journal.title
+        # Delete the journal
         db.session.delete(journal)
         db.session.commit()
         
-        logger.info(f"Deleted journal: {journal_title}")
-        return jsonify({"success": True})
+        logger.info(f"Deleted journal {journal_id} for user {user_id}")
+        return jsonify({"success": True, "message": "Journal deleted successfully"}), 200
         
     except Exception as e:
         db.session.rollback()
-        logger.error(f"Error deleting journal: {str(e)}")
-        return jsonify({"error": str(e)}), 500 
+        logger.error(f"Error deleting journal {journal_id}: {str(e)}", exc_info=True)
+        return jsonify({"error": "An error occurred while deleting the journal"}), 500 

@@ -9,18 +9,25 @@ import {
   Typography, 
   Box,
   Alert,
-  Collapse 
+  Collapse, 
+  Divider
 } from '@mui/material';
+import { supabase } from '../utils/supabase';
+import GoogleIcon from '@mui/icons-material/Google';
 
 const Login = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showDebugInfo, setShowDebugInfo] = useState(false);
-  const { login, error, detailedError, loading } = useAuth();
+  const { login, error: authError, detailedError, loading, logout } = useAuth();
+  const [localError, setLocalError] = useState('');
   const navigate = useNavigate();
+
+  const displayError = authError || localError;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLocalError('');
     try {
       console.log(`Attempting to login user: ${email}`);
       await login(email, password);
@@ -28,6 +35,23 @@ const Login = () => {
       navigate('/');
     } catch (error) {
       console.error('Login error caught in component:', error);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    console.log('Google button onClick fired!');
+    setLocalError('');
+    try {
+      const { error: supabaseError } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+      });
+      if (supabaseError) {
+        console.error('Google Sign-In error:', supabaseError);
+        setLocalError(`Google Sign-In failed: ${supabaseError.message}`);
+      }
+    } catch (err) {
+      console.error('Unexpected error during Google Sign-In initiation:', err);
+      setLocalError('An unexpected error occurred during Google Sign-In. Please try again.');
     }
   };
 
@@ -39,18 +63,19 @@ const Login = () => {
             IFS Center
           </Typography>
           
-          {error && (
+          {displayError && (
             <Alert severity="error" sx={{ mb: 3 }}>
-              {error}
-              <Button 
-                size="small" 
-                onClick={() => setShowDebugInfo(!showDebugInfo)}
-                sx={{ ml: 2 }}
-              >
-                {showDebugInfo ? 'Hide Details' : 'Show Details'}
-              </Button>
-              
-              <Collapse in={showDebugInfo}>
+              {displayError}
+              {detailedError && (
+                <Button 
+                  size="small" 
+                  onClick={() => setShowDebugInfo(!showDebugInfo)}
+                  sx={{ ml: 2 }}
+                >
+                  {showDebugInfo ? 'Hide Details' : 'Show Details'}
+                </Button>
+              )}
+              <Collapse in={showDebugInfo && detailedError}>
                 <Box sx={{ mt: 2, p: 1, bgcolor: '#f5f5f5', borderRadius: 1 }}>
                   <Typography variant="caption" component="pre" sx={{ whiteSpace: 'pre-wrap' }}>
                     {detailedError && JSON.stringify(detailedError, null, 2)}
@@ -87,15 +112,18 @@ const Login = () => {
               sx={{ mt: 3, mb: 2 }}
               disabled={loading}
             >
-              {loading ? 'Signing in...' : 'Sign In'}
+              {loading ? 'Signing in...' : 'Sign In with Email'}
             </Button>
+            
+            <Divider sx={{ my: 2 }}>OR</Divider>
             
             <Button
               fullWidth
               variant="outlined"
-              startIcon={<img src="/google-icon.svg" alt="Google" width="18" />}
-              sx={{ mt: 2 }}
-              onClick={() => window.location.href = 'http://localhost:5000/login/google'}
+              startIcon={<GoogleIcon />}
+              sx={{ mt: 2, mb: 2 }}
+              onClick={handleGoogleSignIn}
+              disabled={loading}
             >
               Sign in with Google
             </Button>

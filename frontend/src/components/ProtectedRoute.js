@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { CircularProgress, Box } from '@mui/material';
 
 export const ProtectedRoute = ({ children }) => {
-  const { currentUser, loading } = useAuth();
+  const { isAuthenticated, loading } = useAuth();
   const location = useLocation();
   
   if (loading) {
@@ -15,11 +15,12 @@ export const ProtectedRoute = ({ children }) => {
     );
   }
   
-  if (!currentUser) {
-    // Redirect to login page but save the current location they were trying to access
+  if (!isAuthenticated) {
+    console.log('[ProtectedRoute] Not authenticated after loading, redirecting to login.');
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   
+  console.log('[ProtectedRoute] Authenticated, rendering children.');
   return children;
 };
 

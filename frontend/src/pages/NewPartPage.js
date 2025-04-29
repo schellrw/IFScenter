@@ -75,10 +75,11 @@ const NewPartPage = () => {
       return;
     }
 
-    // Check authentication
-    if (!isAuthenticated || !token) {
+    // Check authentication using isAuthenticated from AuthContext
+    // AuthContext is responsible for setting the correct Axios header based on the session (Supabase or custom JWT)
+    if (!isAuthenticated) { 
       setError('You must be logged in to create parts');
-      console.error('Cannot create part: Not authenticated or missing token');
+      console.error('Cannot create part: Not authenticated according to AuthContext');
       return;
     }
 
