@@ -15,3 +15,4 @@ export { default as PaymentSuccessPage } from './PaymentSuccessPage';
 export { default as PaymentCancelPage } from './PaymentCancelPage';
 export { default as PrivacyPolicyPage } from './PrivacyPolicyPage';
 export { default as TermsOfServicePage } from './TermsOfServicePage'; 
+export { default as AboutIFSPage } from './AboutIFSPage'; 

@@ -369,10 +369,9 @@ def create_app(test_config: Optional[Dict[str, Any]] = None) -> Flask:
     app.register_blueprint(systems_bp, url_prefix='/api')
     app.register_blueprint(relationships_bp, url_prefix='/api')
     
-    # Root route handler
     @app.route('/', methods=['GET'])
     def index():
-        """Serve the root path - either redirect to health check or serve index.html."""
+        """Serves the main index page (React frontend)."""
         # Check if we have a static/index.html file
         if app.static_folder and os.path.exists(os.path.join(app.static_folder, 'index.html')):
             return app.send_static_file('index.html')

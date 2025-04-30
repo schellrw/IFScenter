@@ -22,7 +22,8 @@ import {
   PaymentSuccessPage,
   PaymentCancelPage,
   PrivacyPolicyPage,
-  TermsOfServicePage
+  TermsOfServicePage,
+  AboutIFSPage
 } from './pages';
 import { 
   Navigation, 
@@ -95,6 +96,7 @@ function App() {
                 <Route path="/payment/cancel" element={<ProtectedRoute><PaymentCancelPage /></ProtectedRoute>} />
                 <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
                 <Route path="/terms-of-service" element={<TermsOfServicePage />} />
+                <Route path="/about-ifs" element={<AboutIFSPage />} />
               </Routes>
             </Box>
             <Footer />
