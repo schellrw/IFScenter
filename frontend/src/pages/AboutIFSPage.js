@@ -94,6 +94,8 @@ function AboutIFSPage() {
                 </ul>
             </section>
 
+            <hr style={{ borderColor: '#dee2e6' }} />
+
             <section id="ifscenter-support" className={styles.section}>
                 <h2>How IFS Center Supports Your IFS Journey</h2>
                 <p>
@@ -119,12 +121,16 @@ function AboutIFSPage() {
                 </ol>
             </section>
 
+            <hr style={{ borderColor: '#dee2e6' }} />
+
             <section id="getting-most" className={styles.section}>
                 <h2>Getting the Most Out of IFS Center</h2>
                 <p>
                     We suggest starting by identifying and creating entries for a few parts. Explore them on the map, perhaps try a guided session focused on one part, and then use the journal to capture your reflections. Remember, this is a journey of self-discovery – approach it with patience and curiosity.
                 </p>
             </section>
+
+            <hr style={{ borderColor: '#dee2e6' }} />
 
             <section id="further-reading" className={styles.section}>
                 <h2>Further Reading & Resources</h2>
