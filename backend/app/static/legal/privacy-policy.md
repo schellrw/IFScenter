@@ -1,10 +1,10 @@
-# Privacy Policy for IFSCenter
+# Privacy Policy for IFS Center
 
 **Last Updated: April 24, 2025**
 
 ## 1. Introduction
 
-Welcome to IFSCenter, a service provided by Artificial Intelligentsia, LLC ("we," "our," or "us"). We respect your privacy and are committed to protecting your personal data. This privacy policy will inform you about how we look after your personal data when you visit our website and use our application, and tell you about your privacy rights and how the law protects you.
+Welcome to IFS Center, a service provided by Artificial Intelligentsia, LLC ("we," "our," or "us"). We respect your privacy and are committed to protecting your personal data. This privacy policy will inform you about how we look after your personal data when you visit our website and use our application, and tell you about your privacy rights and how the law protects you.
 
 ## 2. Data We Collect
 

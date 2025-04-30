@@ -95,20 +95,20 @@ function PricingPage() {
             "Up to 10 Parts",
             "Up to 1 Journal Entry / day",
             "Up to 10 Guided Session Messages / day",
-            "Standard AI Model Access"
+            // "Standard AI Model Access"
         ],
         pro: [
             "Up to 20 Parts",
             "Up to 10 Journal Entries / day",
             "Up to 30 Guided Session Messages / day",
-            "Standard & Enhanced AI Models",
+            // "Standard & Enhanced AI Models",
             "Priority Support"
         ],
         unlimited: [
             "Unlimited Parts",
             "Unlimited Journal Entries / day",
             "Unlimited Guided Session Messages / day",
-            "Access to All AI Models (incl. Frontier)",
+            // "Access to All AI Models (incl. Frontier)",
             "Highest Priority Support"
         ]
     };
