@@ -1,6 +1,7 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext'; // Import useAuth
+import styles from './AboutIFSPage.module.css'; // Import CSS Module
 
 function AboutIFSPage() {
     const navigate = useNavigate();
@@ -38,20 +39,21 @@ function AboutIFSPage() {
     };
 
     return (
-        <div className="container mt-4">
-            <h1>About IFS & IFScenter: Your Companion for Internal Family Systems Exploration</h1>
-            <hr />
+        <div className={`container mt-4 ${styles.pageContainer}`}>
+            <h1>About IFS & IFS Center: Your Companion for Internal Family Systems Exploration</h1>
 
-            <p className="lead">
+            <p className="lead mt-4">
                 Welcome! This page provides a foundational understanding of Internal Family Systems (IFS) therapy, its key concepts,
-                and how IFScenter is designed to support your journey of self-discovery and healing. IFS was developed by
+                and how IFS Center is designed to support your journey of self-discovery and healing. IFS was developed by
                 <a href="https://ifs-institute.com/about-us/richard-c-schwartz-phd" target="_blank" rel="noopener noreferrer"> Dr. Richard C. Schwartz</a>.
             </p>
 
-            <section id="what-is-ifs" className="my-5">
+            <hr style={{ borderColor: '#dee2e6' }} />
+
+            <section id="what-is-ifs" className={styles.section}>
                 <h2>Understanding Internal Family Systems (IFS) Therapy</h2>
                 <p>
-                    The core premise of IFS is that the mind is naturally multiple, composed of various subpersonalities or <strong>"parts"</strong>.
+                    The core premise of IFS is that the mind is naturally multiple, composed of various subpersonalities or <strong>"parts."</strong>
                     This multiplicity is normal, not a sign of pathology. The goal of IFS is not to eliminate parts, but to heal and harmonize them,
                     allowing your core <strong>Self</strong> to lead.
                 </p>
@@ -59,8 +61,9 @@ function AboutIFSPage() {
                 <h4>Key Concepts:</h4>
                 <ul>
                     <li>
-                        <strong>The Self:</strong> Your core consciousness, characterized by qualities like Calm, Curiosity, Compassion, Confidence,
-                        Courage, Creativity, Connection, and Clarity (the 8 Cs). Everyone has a Self, though it can sometimes be obscured by parts.
+                        <strong>The Self:</strong> Your core consciousness, characterized by qualities like the "8 Cs" (Calm, Curiosity, Compassion, Confidence,
+                        Courage, Creativity, Connection, and Clarity) or the "5 Ps" (Patience, Presence, Perspective, Persistence, Playfulness).
+                        Everyone has a Self, though it can sometimes be obscured by parts.
                     </li>
                     <li>
                         <strong>Parts:</strong> Subpersonalities holding valuable qualities, intentions, and roles developed throughout life. They are not flaws.
@@ -91,12 +94,12 @@ function AboutIFSPage() {
                 </ul>
             </section>
 
-            <section id="ifscenter-support" className="my-5">
-                <h2>How IFScenter Supports Your IFS Journey</h2>
+            <section id="ifscenter-support" className={styles.section}>
+                <h2>How IFS Center Supports Your IFS Journey</h2>
                 <p>
-                    IFScenter provides tools designed to help you apply these concepts directly:
+                    IFS Center provides tools designed to help you apply these concepts directly:
                 </p>
-                <ol>
+                <ol className={styles.featuresList}>
                     <li>
                         <strong>Mapping Your Inner World ({renderConditionalLink('/parts', 'Parts Page', 'Parts Page')}):</strong>
                         <p>Create entries for your identified parts. Filling in details like feelings, beliefs, roles, and relationships helps you understand them better and provides essential context for the System Map and Guided Sessions. The more detail you provide, the richer your experience will be.</p>
@@ -116,17 +119,17 @@ function AboutIFSPage() {
                 </ol>
             </section>
 
-            <section id="getting-most" className="my-5">
-                <h2>Getting the Most Out of IFScenter</h2>
+            <section id="getting-most" className={styles.section}>
+                <h2>Getting the Most Out of IFS Center</h2>
                 <p>
                     We suggest starting by identifying and creating entries for a few parts. Explore them on the map, perhaps try a guided session focused on one part, and then use the journal to capture your reflections. Remember, this is a journey of self-discovery – approach it with patience and curiosity.
                 </p>
             </section>
 
-            <section id="further-reading" className="my-5">
+            <section id="further-reading" className={styles.section}>
                 <h2>Further Reading & Resources</h2>
                 <p>For those interested in learning more about Internal Family Systems, we recommend these resources:</p>
-                <ul>
+                <ul className={styles.bookList}>
                     <li><strong>Official IFS Institute Website:</strong> <a href="https://ifs-institute.com/" target="_blank" rel="noopener noreferrer">ifs-institute.com</a></li>
                     <li>
                         <strong>Books:</strong>

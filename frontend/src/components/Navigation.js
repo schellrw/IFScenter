@@ -223,42 +223,84 @@ const Navigation = () => {
             </>
           ) : (
             <>
-              {/* Add About IFS Button for logged-out view */}
-              <Button
-                color="inherit"
-                component={RouterLink}
-                to="/about-ifs"
-                sx={{ display: isActive('/about-ifs') ? 'none' : 'block' }}
-              >
-                About IFS
-              </Button>
-              {/* Add Pricing Button for logged-out view */}
-               <Button
-                 color="inherit"
-                 component={RouterLink}
-                 to="/pricing"
-                 sx={{ display: isActive('/pricing') ? 'none' : 'block' }}
-               >
-                 Pricing
-               </Button>
-              {!isActive('/login') && (
+            {isMobile ? (
+              <>
+                <IconButton
+                  color="inherit"
+                  aria-label="menu"
+                  onClick={handleMenuClick}
+                  edge="start"
+                >
+                  <MenuIcon />
+                </IconButton>
+                <Menu
+                  anchorEl={anchorEl}
+                  open={Boolean(anchorEl)}
+                  onClose={handleMenuClose}
+                >
+                  <MenuItem onClick={() => handleNavigation('/about-ifs')} selected={isActive('/about-ifs')}>About IFS</MenuItem>
+                  <MenuItem onClick={() => handleNavigation('/pricing')} selected={isActive('/pricing')}>Pricing</MenuItem>
+                </Menu>
+                <Box sx={{ flexGrow: 1 }} />
+                {!isActive('/login') && (
+                  <Button
+                    color="inherit"
+                    component={RouterLink}
+                    to="/login"
+                    size="small"
+                  >
+                    Login
+                  </Button>
+                )}
+                {!isActive('/register') && (
+                  <Button
+                    color="inherit"
+                    component={RouterLink}
+                    to="/register"
+                    size="small"
+                  >
+                    Register
+                  </Button>
+                )}
+              </>
+            ) : (
+              <>
                 <Button
                   color="inherit"
                   component={RouterLink}
-                  to="/login"
+                  to="/about-ifs"
+                  sx={{ display: isActive('/about-ifs') ? 'none' : 'block' }}
                 >
-                  Login
+                  About IFS
                 </Button>
-              )}
-              {!isActive('/register') && (
                 <Button
                   color="inherit"
                   component={RouterLink}
-                  to="/register"
+                  to="/pricing"
+                  sx={{ display: isActive('/pricing') ? 'none' : 'block' }}
                 >
-                  Register
+                  Pricing
                 </Button>
-              )}
+                {!isActive('/login') && (
+                  <Button
+                    color="inherit"
+                    component={RouterLink}
+                    to="/login"
+                  >
+                    Login
+                  </Button>
+                )}
+                {!isActive('/register') && (
+                  <Button
+                    color="inherit"
+                    component={RouterLink}
+                    to="/register"
+                  >
+                    Register
+                  </Button>
+                )}
+              </>
+            )}
             </>
           )}
         </Toolbar>

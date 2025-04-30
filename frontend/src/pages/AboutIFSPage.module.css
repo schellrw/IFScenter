@@ -1,0 +1,78 @@
+/* CSS Module for AboutIFSPage */
+
+.pageContainer {
+    /* General page container styles if needed */
+}
+
+/* Alternating Section Backgrounds */
+.section {
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid #dee2e6; /* Subtle divider */
+}
+
+.section:last-child {
+    border-bottom: none;
+}
+
+/* Heading Styles with simple icon */
+.section h2::before {
+    content: '➤ '; /* Simple arrow marker */
+    color: #2196f3; /* Match theme primary color */
+    margin-right: 0.5em;
+    font-size: 0.9em; /* Slightly smaller than heading */
+}
+
+/* Key Concept Callouts - REMOVED */
+/* Removed .conceptDefinition rule */
+
+/* List Styling */
+.section ul {
+    padding-left: 2rem; /* Indent lists */
+}
+
+.section ul li {
+    margin-bottom: 0.5rem; /* Space out list items */
+}
+
+/* Specific styling for the ordered list of features */
+.featuresList {
+    list-style-type: none; /* Remove default numbers */
+    padding-left: 0;
+    counter-reset: features-counter;
+}
+
+.featuresList li {
+    counter-increment: features-counter;
+    margin-bottom: 1.5rem; /* More space between features */
+    padding-left: 2.5rem; /* Space for custom counter */
+    position: relative;
+}
+
+.featuresList li::before {
+    content: counter(features-counter);
+    position: absolute;
+    left: 0;
+    top: 0;
+    background-color: #2196f3; /* Match theme primary color */
+    color: white;
+    font-weight: bold;
+    width: 1.8rem;
+    height: 1.8rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    line-height: 1;
+}
+
+.featuresList li strong {
+    font-size: 1.1em; /* Make feature titles slightly larger */
+}
+
+/* Styling for the book list */
+.bookList ul {
+    list-style-type: '\1F4D6'; /* Book emoji marker */
+    padding-left: 2rem;
+} 
