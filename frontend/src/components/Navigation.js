@@ -135,23 +135,13 @@ const Navigation = () => {
                         {item.label}
                       </MenuItem>
                     ))}
-                    {/* Add About IFS to mobile menu */}
-                    <MenuItem
-                      key="/about-ifs"
-                      onClick={() => handleNavigation('/about-ifs')}
-                      selected={isActive('/about-ifs')}
-                    >
-                      About IFS
-                    </MenuItem>
-                    {/* Add Account Settings to mobile menu */}
+                    {/* Add Account Settings to mobile menu - removing icon */}
                      <MenuItem
                         key={accountSettingsItem.path}
                         onClick={() => handleNavigation(accountSettingsItem.path)}
                         selected={isActive(accountSettingsItem.path)}
                      >
-                        <ListItemIcon>
-                           {accountSettingsItem.icon}
-                         </ListItemIcon>
+                         {/* Removed <ListItemIcon> */} 
                          {accountSettingsItem.label}
                      </MenuItem>
                      <MenuItem onClick={handleLogoutClick}>
