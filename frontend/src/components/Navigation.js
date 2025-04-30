@@ -82,6 +82,7 @@ const Navigation = () => {
     { label: 'System Map', path: '/system-map', icon: null },
     { label: 'Guided Sessions', path: '/sessions', icon: null },
     { label: 'Journal', path: '/journal', icon: null },
+    { label: 'About IFS', path: '/about-ifs', icon: null },
     { label: 'Pricing', path: '/pricing', icon: null },
   ] : [];
 
@@ -134,6 +135,14 @@ const Navigation = () => {
                         {item.label}
                       </MenuItem>
                     ))}
+                    {/* Add About IFS to mobile menu */}
+                    <MenuItem
+                      key="/about-ifs"
+                      onClick={() => handleNavigation('/about-ifs')}
+                      selected={isActive('/about-ifs')}
+                    >
+                      About IFS
+                    </MenuItem>
                     {/* Add Account Settings to mobile menu */}
                      <MenuItem
                         key={accountSettingsItem.path}
@@ -214,6 +223,15 @@ const Navigation = () => {
             </>
           ) : (
             <>
+              {/* Add About IFS Button for logged-out view */}
+              <Button
+                color="inherit"
+                component={RouterLink}
+                to="/about-ifs"
+                sx={{ display: isActive('/about-ifs') ? 'none' : 'block' }}
+              >
+                About IFS
+              </Button>
               {/* Add Pricing Button for logged-out view */}
                <Button
                  color="inherit"
