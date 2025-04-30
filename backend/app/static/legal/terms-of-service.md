@@ -1,16 +1,16 @@
-# Terms of Service for IFSCenter
+# Terms of Service for IFS Center
 
 **Last Updated: April 24, 2025**
 
 ## 1. Introduction
 
-These Terms of Service ("Terms") govern your access to and use of the IFSCenter application and website (the "Service") provided by Artificial Intelligentsia, LLC ("we," "our," "us," or "Company"). Please read these Terms carefully before using the Service.
+These Terms of Service ("Terms") govern your access to and use of the IFS Center application and website (the "Service") provided by Artificial Intelligentsia, LLC ("we," "our," "us," or "Company"). Please read these Terms carefully before using the Service.
 
 By accessing or using the Service, you agree to be bound by these Terms. If you disagree with any part of the Terms, you may not access the Service.
 
 ## 2. Definitions
 
-- **Application**: The IFSCenter application, including all its features and functionality
+- **Application**: The IFS Center application, including all its features and functionality
 - **Content**: All information, text, graphics, photos, or other materials uploaded, downloaded, or appearing on the Service
 - **User**: An individual who accesses or uses the Service
 - **Subscription**: A recurring payment plan that grants access to premium features of the Service

@@ -90,7 +90,7 @@ function App() {
                 <Route path="/sessions" element={<ProtectedIFSRoute><GuidedSessionsPage /></ProtectedIFSRoute>} />
                 <Route path="/journal" element={<ProtectedIFSRoute><JournalPage /></ProtectedIFSRoute>} />
                 <Route path="/system-map" element={<ProtectedIFSRoute><ErrorBoundary FallbackComponent={ErrorFallback}><SystemMapPage /></ErrorBoundary></ProtectedIFSRoute>} />
-                <Route path="/pricing" element={<ProtectedRoute><PricingPage /></ProtectedRoute>} />
+                <Route path="/pricing" element={<PricingPage />} />
                 <Route path="/account-settings" element={<ProtectedIFSRoute><AccountSettings /></ProtectedIFSRoute>} />
                 <Route path="/payment/success" element={<ProtectedRoute><PaymentSuccessPage /></ProtectedRoute>} />
                 <Route path="/payment/cancel" element={<ProtectedRoute><PaymentCancelPage /></ProtectedRoute>} />
