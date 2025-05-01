@@ -126,56 +126,46 @@ const GuidedSessionChatPage = () => {
       session_id: sessionId // Add session_id for consistency
     };
 
+    // Use a functional update to ensure we have the latest state
     setMessages(prev => [...prev, tempUserMessage]);
     setIsSending(true); // Indicate that sending is in progress
     setError(''); // Clear previous errors
+
+    let messageSentSuccessfully = false; // Flag to track if POST was ok
 
     try {
       // Send the message using the imported API function
       const response = await addSessionMessage(session.id, userMessageContent);
 
-      // The backend now returns {"userMessage": ..., "guideMessage": ..., "usageInfo": ...}
-      const savedUserMessage = response.data.userMessage;
-      const guideResponse = response.data.guideMessage;
-      const usageInfo = response.data.usageInfo; // Get usage info
+      // We primarily care that the POST itself didn't throw a network/server error (5xx)
+      // Backend might return specific errors in the response body (e.g., usage limits)
+      messageSentSuccessfully = true; // Assume success if no exception
 
-      // Replace the temp message with the actual one from the server
-      // Add the guide's response
-      setMessages(prev => {
-        const newMessages = prev.filter(m => m.id !== tempUserMessage.id);
-        if (savedUserMessage) {
-          // Ensure timestamp exists (backend should provide it)
-          savedUserMessage.timestamp = savedUserMessage.timestamp || new Date().toISOString();
-          newMessages.push(savedUserMessage);
-        }
-        if (guideResponse) {
-          // Ensure timestamp exists
-          guideResponse.timestamp = guideResponse.timestamp || new Date().toISOString();
-          newMessages.push(guideResponse);
-        }
-        return newMessages;
-      });
+      // Show backend non-critical error as warning snackbar right away
+      if (response.data && response.data.error) {
+          setSnackbarMessage(`Note: ${response.data.error}`);
+          setSnackbarSeverity('warning');
+          setSnackbarOpen(true);
+      }
 
-      // --- Update Usage Info State --- 
+      // Process usage info if available in the POST response
+      const usageInfo = response.data ? response.data.usageInfo : null;
       if (usageInfo) {
-        console.log('Received usage info:', usageInfo);
+        console.log('Received usage info from POST:', usageInfo);
         setDailyCount(usageInfo.dailyMessageCount);
-        // Handle potential infinity limit from backend
-        setDailyLimit(usageInfo.dailyMessageLimit === null || usageInfo.dailyMessageLimit === Infinity ? Infinity : usageInfo.dailyMessageLimit); 
+        setDailyLimit(usageInfo.dailyMessageLimit === null || usageInfo.dailyMessageLimit === Infinity ? Infinity : usageInfo.dailyMessageLimit);
       } else {
-        console.warn('No usageInfo received from backend.');
+        // Still useful to know if it wasn't in the POST response
+        console.warn('No usageInfo received from backend in POST response.');
       }
-      // --- End Update Usage Info --- 
 
-      // Show backend non-critical error as warning snackbar
-      if (response.data.error) {
-        setSnackbarMessage(`Note: ${response.data.error}`); 
-        setSnackbarSeverity('warning');
-        setSnackbarOpen(true);
-      }
+      // *** We will no longer update messages directly from the POST response ***
+      // The refetch in 'finally' will handle updating the message list.
 
     } catch (err) {
       console.error('Error sending message:', err);
+      messageSentSuccessfully = false; // Explicitly mark as failed on catch
+
       // --- Use Snackbar for send errors ---
       let displayError = 'Failed to send message. Please check your connection and try again.';
       if (err.response && err.response.data && err.response.data.error) {
@@ -186,12 +176,36 @@ const GuidedSessionChatPage = () => {
       setSnackbarMessage(displayError);
       setSnackbarSeverity('error');
       setSnackbarOpen(true);
-      // --- End Snackbar --- 
+      // --- End Snackbar ---
 
       // Remove the temp message if sending failed
+      // Use functional update here too for safety
       setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
+
     } finally {
-      setIsSending(false); // Sending finished
+      // --- Refetch session details AFTER the attempt (success or fail) ---
+      if (messageSentSuccessfully) {
+          // If the POST seemed successful, refetch everything to get the true state
+          // This will include the user message (confirming it) and any guide response
+          console.log("Message POST successful, refetching session details to update UI...");
+          try {
+            await fetchSessionDetails(sessionId); // Refetch data
+            // No need to remove temp message here, fetchSessionDetails replaces the whole list
+          } catch (fetchErr) {
+            console.error("Error refetching session details after send:", fetchErr);
+            setSnackbarMessage('Message sent, but failed to refresh chat. Please refresh manually.');
+            setSnackbarSeverity('warning');
+            setSnackbarOpen(true);
+            // If refetch fails, we might still have the temp message. Remove it.
+            setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
+          }
+      } else {
+         // If POST failed, we already removed the temp message in catch block.
+         console.log("Message POST failed, not refetching.");
+      }
+      // --- End Refetch ---
+
+      setIsSending(false); // Sending finished (potentially after refetch)
     }
   };
 
