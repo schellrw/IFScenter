@@ -85,17 +85,32 @@ const GuidedSessionChatPage = () => {
     setError('');
 
     try {
-      // Fetch session details and messages from the new endpoint
       const response = await getSessionDetails(id);
 
       if (response.data) {
-        setSession(response.data.session || null);
-        setMessages(response.data.messages || []);
-        // Log the session data after setting state to confirm summary presence
-        console.log('Fetched and set session details:', response.data.session);
-        // Optionally store system and focusPart info if needed
-        // setSystemInfo(response.data.system);
-        // setFocusPartInfo(response.data.currentFocusPart);
+        const sessionData = response.data.session || null;
+        const fetchedMessages = response.data.messages || [];
+
+        setSession(sessionData);
+
+        // *** Merge fetched messages instead of replacing ***
+        setMessages(prevMessages => {
+          const existingMessageIds = new Set(prevMessages.map(msg => msg.id));
+          const newMessagesToAdd = fetchedMessages.filter(msg => !existingMessageIds.has(msg.id));
+
+          if (newMessagesToAdd.length > 0) {
+             console.log('Merging new messages into existing list:', newMessagesToAdd);
+             // Append only the truly new messages
+             return [...prevMessages, ...newMessagesToAdd];
+          } else {
+             console.log('No new messages found in fetch, retaining existing list.');
+             // If no new messages, return the previous state to avoid unnecessary re-render
+             return prevMessages;
+          }
+        });
+        // **************************************************
+
+        console.log('Fetched and set session details:', sessionData);
       } else {
         throw new Error('Session not found or invalid response');
       }
@@ -187,17 +202,22 @@ const GuidedSessionChatPage = () => {
       if (messageSentSuccessfully) {
           // If the POST seemed successful, refetch everything to get the true state
           // This will include the user message (confirming it) and any guide response
-          console.log("Message POST successful, refetching session details to update UI...");
+          console.log("Message POST successful, preparing to refetch session details...");
+
+          // *** Remove the temporary message BEFORE fetching ***
+          // This prevents potential duplicate keys or merging issues if the fetch is fast
+          setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
+
+          console.log("Temporary message removed, now refetching session details...");
           try {
-            await fetchSessionDetails(sessionId); // Refetch data
-            // No need to remove temp message here, fetchSessionDetails replaces the whole list
+            await fetchSessionDetails(sessionId); // Refetch data which will now merge
+            console.log("Session details refetched and merged successfully.");
           } catch (fetchErr) {
             console.error("Error refetching session details after send:", fetchErr);
             setSnackbarMessage('Message sent, but failed to refresh chat. Please refresh manually.');
             setSnackbarSeverity('warning');
             setSnackbarOpen(true);
-            // If refetch fails, we might still have the temp message. Remove it.
-            setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
+            // If refetch fails, the temp message was already removed above.
           }
       } else {
          // If POST failed, we already removed the temp message in catch block.
