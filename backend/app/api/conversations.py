@@ -34,13 +34,10 @@ from ..utils.keywords import generate_keywords
 logger = logging.getLogger(__name__)
 
 # --- Service Imports ---
-try:
-    from ..utils.embeddings import EmbeddingManager
-    embedding_manager = EmbeddingManager()
-    EMBEDDINGS_AVAILABLE = True
-except ImportError:
-    EMBEDDINGS_AVAILABLE = False
-    logger.warning("Embedding manager not available, vector operations will be disabled")
+# Embedding Manager removed as it's unused/broken
+EMBEDDINGS_AVAILABLE = False 
+embedding_manager = None # Set to None explicitly
+logger.info("Embedding manager explicitly disabled.")
 
 try:
     from ..utils.llm_service import LLMService
@@ -212,13 +209,15 @@ def create_guided_session():
                     'role': 'guide',
                     'content': initial_greeting
                 }
-                if EMBEDDINGS_AVAILABLE:
-                    try:
-                        embedding = embedding_manager.generate_embedding(initial_greeting)
-                        if embedding:
-                            initial_message_data['embedding'] = embedding
-                    except Exception as emb_err:
-                        logger.error(f"Error generating embedding for initial guide message: {emb_err}")
+                # Add user message embedding if available
+                # Embedding generation removed
+                # if EMBEDDINGS_AVAILABLE:
+                #     try:
+                #         embedding = embedding_manager.generate_embedding(initial_greeting)
+                #         if embedding:
+                #             initial_message_data['embedding'] = embedding
+                #     except Exception as emb_err:
+                #         logger.error(f"Error generating embedding for initial guide message: {emb_err}")
 
                 current_app.db_adapter.create(SESSION_MESSAGE_TABLE, SessionMessage, initial_message_data)
             except Exception as msg_err:
@@ -364,14 +363,15 @@ def add_session_message(session_id):
         }
         
         # Add user message embedding if available
-        user_message_embedding = None
-        if EMBEDDINGS_AVAILABLE:
-            try:
-                user_message_embedding = embedding_manager.generate_embedding(user_message_content)
-                if user_message_embedding:
-                    user_message_data['embedding'] = user_message_embedding
-            except Exception as emb_err:
-                logger.error(f"Error generating embedding for user message in session {session_id}: {emb_err}")
+        # Embedding generation removed
+        # user_message_embedding = None
+        # if EMBEDDINGS_AVAILABLE:
+        #     try:
+        #         user_message_embedding = embedding_manager.generate_embedding(user_message_content)
+        #         if user_message_embedding:
+        #             user_message_data['embedding'] = user_message_embedding
+        #     except Exception as emb_err:
+        #         logger.error(f"Error generating embedding for user message in session {session_id}: {emb_err}")
         
         # Save user message
         saved_user_message = current_app.db_adapter.create(SESSION_MESSAGE_TABLE, SessionMessage, user_message_data)
@@ -488,13 +488,14 @@ def add_session_message(session_id):
         }
         
         # Add guide message embedding if available
-        if EMBEDDINGS_AVAILABLE:
-            try:
-                guide_message_embedding = embedding_manager.generate_embedding(guide_response_content)
-                if guide_message_embedding:
-                    guide_message_data['embedding'] = guide_message_embedding
-            except Exception as emb_err:
-                logger.error(f"Error generating embedding for guide message in session {session_id}: {emb_err}")
+        # Embedding generation removed
+        # if EMBEDDINGS_AVAILABLE:
+        #     try:
+        #         guide_message_embedding = embedding_manager.generate_embedding(guide_response_content)
+        #         if guide_message_embedding:
+        #             guide_message_data['embedding'] = guide_message_embedding
+        #     except Exception as emb_err:
+        #         logger.error(f"Error generating embedding for guide message in session {session_id}: {emb_err}")
                 
         # Save guide message
         saved_guide_message = current_app.db_adapter.create(SESSION_MESSAGE_TABLE, SessionMessage, guide_message_data)
@@ -510,6 +511,14 @@ def add_session_message(session_id):
         db.session.commit()
         needs_commit = False # Reset flag after commit
 
+        # *** Refresh user object after commit to get updated counter ***
+        try:
+            db.session.refresh(user)
+            logger.debug(f"User object refreshed after commit. New count: {user.daily_messages_used}")
+        except Exception as refresh_err:
+            logger.error(f"Failed to refresh user object after commit for user {user_id}: {refresh_err}")
+            # Continue without refresh, usageInfo might be slightly stale
+            
         # --- Return Response --- 
         # Construct usage info
         # Ensure limit is defined (it should be from the earlier check)
@@ -518,16 +527,19 @@ def add_session_message(session_id):
             user_limit = 30 if user.subscription_tier == 'pro' else 10
             
         usage_info = {
-            "dailyMessageCount": user.daily_messages_used,
+            "dailyMessageCount": user.daily_messages_used, # Read potentially refreshed value
             "dailyMessageLimit": user_limit
         }
         
         # Return both the saved user message and the saved guide message, plus usage info
-        return jsonify({
+        response_payload = {
             "userMessage": saved_user_message, 
             "guideMessage": saved_guide_message,
             "usageInfo": usage_info # Add the usage info here
-        }), 201
+        }
+        logger.debug(f"Returning response payload for add_session_message: {response_payload}") # Log the exact payload
+
+        return jsonify(response_payload), 201
 
     except Exception as e:
         logger.error(f"Error adding message to session {session_id} for user {user_id_for_log}: {str(e)}", exc_info=True)

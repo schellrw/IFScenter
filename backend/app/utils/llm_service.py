@@ -22,7 +22,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Constants for LLM parameters (can be adjusted)
-DEFAULT_MAX_NEW_TOKENS = 300
+DEFAULT_MAX_NEW_TOKENS = 200
 DEFAULT_TEMPERATURE = 0.6
 DEFAULT_TOP_P = 0.9
 
@@ -186,12 +186,23 @@ class LLMService:
         # --- Context: User's Parts ---
         part_context = ["User's Defined Parts Context:"]
         if system_parts:
-            for part in system_parts:
-                part_info = f"- {part.get('name', 'Unnamed Part')}: Role='{part.get('role', 'N/A')}', Description='{part.get('description', 'N/A')}'"
-                # Optionally add more details like feelings/beliefs if concise
-                if part.get('feelings'): part_info += f", Feels='{', '.join(part.get('feelings', []))}'"
-                if part.get('beliefs'): part_info += f", Believes='{', '.join(part.get('beliefs', []))}'"
-                part_context.append(part_info)
+            # Filter parts: Include only those with a role OR description to avoid clutter
+            meaningful_parts = [
+                part for part in system_parts 
+                if part.get('role', '').strip() or part.get('description', '').strip()
+            ]
+            
+            if meaningful_parts:
+                for part in meaningful_parts:
+                    part_info = f"- {part.get('name', 'Unnamed Part')}:"
+                    if part.get('role'): part_info += f" Role='{part.get('role')}'"
+                    if part.get('description'): part_info += f" Description='{part.get('description')}'"
+                    # Optionally add feelings/beliefs if present and concise
+                    if part.get('feelings'): part_info += f", Feels='{', '.join(part.get('feelings', []))}'"
+                    if part.get('beliefs'): part_info += f", Believes='{', '.join(part.get('beliefs', []))}'"
+                    part_context.append(part_info)
+            else:
+                 part_context.append("- No parts with roles or descriptions defined yet.")
         else:
             part_context.append("- No parts defined yet.")
 

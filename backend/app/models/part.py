@@ -31,8 +31,8 @@ class Part(db.Model):
     triggers = Column(JSONB, default=list)
     needs = Column(JSONB, default=list)
     
-    created_at = Column(DateTime, server_default=func.now())
-    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, server_default=sql_func.now())
+    updated_at = Column(DateTime, server_default=sql_func.now(), onupdate=sql_func.now())
     
     # Relationships
     system_id = Column(UUID(as_uuid=True), ForeignKey('ifs_systems.id'), nullable=False)

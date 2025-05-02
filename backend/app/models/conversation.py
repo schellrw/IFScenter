@@ -101,8 +101,8 @@ class PartConversation(db.Model):
     system_id = Column(UUID(as_uuid=True), ForeignKey('ifs_systems.id', ondelete='CASCADE'), nullable=False) # Added FK for consistency
     title = Column(String(255), nullable=True)
     summary = Column(Text, nullable=True) # Added summary field
-    created_at = Column(DateTime(timezone=True), server_default=sql_func.now()) # Use timezone=True
-    updated_at = Column(DateTime(timezone=True), server_default=sql_func.now(), onupdate=sql_func.now()) # Use timezone=True
+    created_at = Column(DateTime(timezone=True), server_default=sql_func.now()) # Corrected
+    updated_at = Column(DateTime(timezone=True), server_default=sql_func.now(), onupdate=sql_func.now()) # Corrected
     status = Column(String, default='active') # Added status field
 
     # Relationships
@@ -134,7 +134,7 @@ class ConversationMessage(db.Model):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     role = Column(String(50), nullable=False)  # 'user' or 'part'/'assistant'
     content = Column(Text, nullable=False)
-    timestamp = Column(DateTime(timezone=True), server_default=sql_func.now()) # Use timezone=True
+    timestamp = Column(DateTime(timezone=True), server_default=sql_func.now()) # Corrected
 
     # Vector embedding for the message content
     embedding = Column(Vector(384), nullable=True)
@@ -164,8 +164,8 @@ class PartPersonalityVector(db.Model):
     attribute = Column(String(100), nullable=False) # Renamed from aspect, increased length
     description = Column(Text, nullable=True) # Added description field
     embedding = Column(Vector(384), nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=sql_func.now()) # Use timezone=True
-    updated_at = Column(DateTime(timezone=True), server_default=sql_func.now(), onupdate=sql_func.now()) # Use timezone=True
+    created_at = Column(DateTime(timezone=True), server_default=sql_func.now()) # Corrected
+    updated_at = Column(DateTime(timezone=True), server_default=sql_func.now(), onupdate=sql_func.now()) # Corrected
 
     # Relationships
     part_id = Column(UUID(as_uuid=True), ForeignKey('parts.id', ondelete='CASCADE'), nullable=False)
