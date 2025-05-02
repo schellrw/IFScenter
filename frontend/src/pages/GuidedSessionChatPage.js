@@ -70,7 +70,8 @@ const GuidedSessionChatPage = () => {
       // Optionally navigate back or show an error state
       navigate('/sessions');
     }
-  }, [sessionId]); // Depend on sessionId
+    // eslint-disable-next-line react-hooks/exhaustive-deps 
+  }, [sessionId, navigate]); // Depend on sessionId AND navigate (to satisfy linter)
 
   // Snackbar close handler
   const handleSnackbarClose = (event, reason) => {
@@ -80,9 +81,14 @@ const GuidedSessionChatPage = () => {
     setSnackbarOpen(false);
   };
 
-  const fetchSessionDetails = async (id) => {
-    setIsLoading(true);
-    setError('');
+  // Pass optional tempMessageIdToReplace for smoother UI updates after sending
+  const fetchSessionDetails = async (id, tempMessageIdToReplace = null) => {
+    // Only set loading true on initial load, not on refetch after send
+    if (!tempMessageIdToReplace) { 
+      setIsLoading(true);
+    }
+    // Keep error clear unless a new fetch error occurs
+    // setError(''); 
 
     try {
       const response = await getSessionDetails(id);
@@ -93,24 +99,63 @@ const GuidedSessionChatPage = () => {
 
         setSession(sessionData);
 
-        // *** Merge fetched messages instead of replacing ***
+        // *** Enhanced Merge Logic ***
         setMessages(prevMessages => {
           const existingMessageIds = new Set(prevMessages.map(msg => msg.id));
-          const newMessagesToAdd = fetchedMessages.filter(msg => !existingMessageIds.has(msg.id));
+          const finalMessages = [...prevMessages]; // Start with a copy
+          let replacedTemp = false;
 
+          // Find the actual user message that corresponds to the temp one (if provided)
+          let realUserMessage = null;
+          if (tempMessageIdToReplace) {
+              // Attempt to find the real message matching the temp one's content/context
+              // This is tricky without a reliable ID map. We'll assume the latest user message 
+              // in fetchedMessages that isn't already in prevMessages is the one.
+              const tempMessageIndex = finalMessages.findIndex(m => m.id === tempMessageIdToReplace);
+              if (tempMessageIndex !== -1) {
+                  const tempMessageContent = finalMessages[tempMessageIndex].content;
+                  // Find the latest *fetched* user message matching the temp content
+                  realUserMessage = fetchedMessages
+                      .slice()
+                      .reverse()
+                      .find(fm => fm.role === 'user' && fm.content === tempMessageContent && !existingMessageIds.has(fm.id));
+                  
+                  if (realUserMessage) {
+                      console.log(`Replacing temp message ${tempMessageIdToReplace} with real message ${realUserMessage.id}`);
+                      finalMessages[tempMessageIndex] = realUserMessage; // Replace in place
+                      existingMessageIds.add(realUserMessage.id); // Mark as processed
+                      replacedTemp = true;
+                  } else {
+                       console.warn(`Could not find matching real message for temp ID ${tempMessageIdToReplace}. Removing temp message.`);
+                       // If we can't find the match, remove the temp message anyway
+                       finalMessages.splice(tempMessageIndex, 1);
+                  }
+              } else {
+                  console.warn(`Temp message ID ${tempMessageIdToReplace} not found in state during merge.`);
+              }
+          }
+
+          // Add any other new messages (like the guide's response)
+          const newMessagesToAdd = fetchedMessages.filter(msg => !existingMessageIds.has(msg.id));
           if (newMessagesToAdd.length > 0) {
-             console.log('Merging new messages into existing list:', newMessagesToAdd);
-             // Append only the truly new messages
-             return [...prevMessages, ...newMessagesToAdd];
+             console.log('Appending new messages:', newMessagesToAdd);
+             finalMessages.push(...newMessagesToAdd);
+          }
+
+          // Only return a new array if changes were made
+          if (replacedTemp || newMessagesToAdd.length > 0) {
+            return finalMessages;
           } else {
-             console.log('No new messages found in fetch, retaining existing list.');
-             // If no new messages, return the previous state to avoid unnecessary re-render
-             return prevMessages;
+            console.log('No changes needed during merge.');
+            return prevMessages; // No change
           }
         });
-        // **************************************************
+        // ***************************
 
-        console.log('Fetched and set session details:', sessionData);
+        // Only log if it wasn't a silent refetch
+        if (!tempMessageIdToReplace) {
+          console.log('Fetched and set session details:', sessionData);
+        }
       } else {
         throw new Error('Session not found or invalid response');
       }
@@ -122,7 +167,10 @@ const GuidedSessionChatPage = () => {
       // Consider navigating back after a delay
       // setTimeout(() => navigate('/sessions'), 3000);
     } finally {
-      setIsLoading(false);
+       // Only set loading false on initial load
+       if (!tempMessageIdToReplace) { 
+         setIsLoading(false);
+       }
     }
   };
 
@@ -204,20 +252,22 @@ const GuidedSessionChatPage = () => {
           // This will include the user message (confirming it) and any guide response
           console.log("Message POST successful, preparing to refetch session details...");
 
-          // *** Remove the temporary message BEFORE fetching ***
-          // This prevents potential duplicate keys or merging issues if the fetch is fast
-          setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
+          // *** DO NOT Remove the temporary message here anymore ***
+          // Let the fetchSessionDetails merge logic handle replacing it.
+          // setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
 
-          console.log("Temporary message removed, now refetching session details...");
+          // Pass the temporary message ID to the fetch function so it knows what to replace
+          console.log(`Refetching session details, indicating temp message ID: ${tempUserMessage.id}`);
           try {
-            await fetchSessionDetails(sessionId); // Refetch data which will now merge
+            await fetchSessionDetails(sessionId, tempUserMessage.id); // Pass tempId
             console.log("Session details refetched and merged successfully.");
           } catch (fetchErr) {
             console.error("Error refetching session details after send:", fetchErr);
             setSnackbarMessage('Message sent, but failed to refresh chat. Please refresh manually.');
             setSnackbarSeverity('warning');
             setSnackbarOpen(true);
-            // If refetch fails, the temp message was already removed above.
+            // If refetch fails, now we should remove the temp message
+            setMessages(prev => prev.filter(m => m.id !== tempUserMessage.id));
           }
       } else {
          // If POST failed, we already removed the temp message in catch block.
@@ -225,7 +275,8 @@ const GuidedSessionChatPage = () => {
       }
       // --- End Refetch ---
 
-      setIsSending(false); // Sending finished (potentially after refetch)
+      // Set sending false only after potential refetch is complete
+      setIsSending(false); 
     }
   };
 
